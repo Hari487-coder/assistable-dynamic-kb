@@ -47,8 +47,10 @@ The portal then:
 - Ingests the source into its own store and **rescans on a schedule** (daily
   default, per-source configurable, plus a "Sync now" button).
 - **Auto-creates a custom tool** in the user's Assistable account pointing at the
-  portal's search endpoint, and assigns it to the chosen assistants (channel
-  `BOTH`), so agents fetch current data mid-call and mid-chat.
+  portal's search endpoint, and assigns it to the chosen assistants, so agents
+  fetch current data mid-call and mid-chat. (Correction from source recon: the
+  `ToolChannel` enum is dead code — no channel field exists; every assistant-linked
+  FUNCTION/CUSTOM tool automatically serves BOTH voice and chat.)
 
 ## Connectors (v1)
 
