@@ -1,0 +1,23 @@
+# Render Blueprint — one-click "deploy your own Live KB".
+# Free plan note: the free tier has an EPHEMERAL disk (data resets on deploys
+# and restarts) and idles after 15 min (pair with a free UptimeRobot ping).
+# Perfect for trying it out; for durable production data use the Docker or
+# Oracle-VM path in docs/SELF-HOSTING.md, or attach a paid disk here.
+services:
+  - type: web
+    name: live-kb
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: SIGNUPS
+        value: first-only        # first signup claims this instance
+      - key: MOCK_ASSISTABLE
+        value: "0"               # real tool provisioning
+      - key: DATA_DIR
+        value: ./data
+      - key: ENCRYPTION_KEY
+        generateValue: true      # Render generates a strong random value
+      # BASE_URL is auto-detected from RENDER_EXTERNAL_URL — no config needed.

@@ -33,8 +33,14 @@ export function createDashboardRouter(deps) {
   router.get("/login", (_req, res) => res.send(pages.loginPage()));
   router.get("/signup", (_req, res) => res.send(pages.signupPage()));
 
+  const signupsClosed = () =>
+    config.signups === "first-only" && db.prepare("SELECT count(*) c FROM users").get().c > 0;
+
   router.post("/signup", loginLimiter, async (req, res) => {
     try {
+      if (signupsClosed()) {
+        return res.status(403).json({ ok: false, error: "signups are closed on this instance (self-hosted, first-only mode)" });
+      }
       const user = await createUser(db, req.body?.email, req.body?.password);
       audit(db, user.id, "signup", { email: user.email });
       res.cookie("sid", createSession(db, user.id), cookieOpts(config.nodeEnv));

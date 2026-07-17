@@ -63,7 +63,7 @@ if (isMain) {
       if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
     }
   } catch { /* no .env — rely on real env vars */ }
-  const config = loadConfig();
+  const config = loadConfig(process.env, { autoKey: true });
   const logger = createLogger();
   fs.mkdirSync(config.dataDir, { recursive: true });
   const db = openDb(path.join(config.dataDir, "kb-bridge.db"));

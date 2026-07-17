@@ -21,7 +21,13 @@ for the full production architecture and `docs/superpowers/` for spec + plan.
 | No match | Injects 3 least-bad chunks anyway | "No exact match, closest is…" + alternatives |
 | Voice | Top-6 chunks, $0.01/query | Pre-composed `speech_hint`, ~30-60ms |
 
-## Quickstart
+## Deploy your own (plug-and-play)
+
+Each user can run their **own** instance — own data, own URL, first signup
+claims it, encryption key auto-generates. Three zero-cost paths (Render
+blueprint / Docker / Oracle free VM): see **[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
+
+## Quickstart (local dev)
 
 ```bash
 cp .env.example .env

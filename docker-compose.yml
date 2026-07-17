@@ -1,0 +1,15 @@
+services:
+  live-kb:
+    build: .
+    ports:
+      - "3900:3900"
+    environment:
+      # Set your public HTTPS URL once you have one (tools must reach it):
+      # BASE_URL: https://kb.example.com
+      SIGNUPS: first-only
+      MOCK_ASSISTABLE: "0"
+    volumes:
+      - kb-data:/data
+    restart: unless-stopped
+volumes:
+  kb-data:
