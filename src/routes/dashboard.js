@@ -87,6 +87,21 @@ export function createDashboardRouter(deps) {
     return makeClient(decryptSecret(conn.api_key_ct, config.encryptionKey));
   };
 
+  router.get("/setup", guard, (req, res) => {
+    const conn = ownedConnection(db, req.user.id);
+    const first = db.prepare("SELECT * FROM sources WHERE user_id = ? ORDER BY created_at ASC LIMIT 1").get(req.user.id);
+    const count = db.prepare("SELECT count(*) c FROM sources WHERE user_id = ?").get(req.user.id).c;
+    const tool = first ? db.prepare("SELECT * FROM tools WHERE source_id = ?").get(first.id) : null;
+    res.send(pages.setupPage({
+      connected: !!conn,
+      sourceCount: count,
+      firstSourceId: first?.id,
+      firstSourceName: first?.name,
+      firstTool: tool,
+      firstToolName: tool?.tool_id ? `the live_data_${String(first?.name || "").replace(/[^a-zA-Z0-9_-]+/g, "_")} tool` : null,
+    }));
+  });
+
   router.get("/sources", guard, (req, res) => {
     const sources = db.prepare("SELECT * FROM sources WHERE user_id = ? ORDER BY created_at DESC").all(req.user.id);
     res.send(pages.sourcesPage(sources));
@@ -150,6 +165,21 @@ export function createDashboardRouter(deps) {
     if (!source) return res.status(404).json({ ok: false, error: "not found" });
     return handler(req, res, source);
   };
+
+  // Session-authed test search: same engine the tool webhook uses, so the
+  // setup wizard can prove the answer before any real call happens.
+  router.post("/sources/:id/test", guard, withOwned(async (req, res, source) => {
+    const { searchStructured } = await import("../search/structured.js");
+    const { searchText } = await import("../search/text.js");
+    const { buildToolResponse } = await import("../search/respond.js");
+    const started = Date.now();
+    if (!source.active_batch_id) return res.json({ ok: false, error: "not_synced" });
+    const args = { query: String(req.body?.query || "") };
+    const out = source.type === "website"
+      ? buildToolResponse({ source, textResult: searchText(db, source, args.query), args, tookMs: Date.now() - started })
+      : buildToolResponse({ source, structured: searchStructured(db, source, args), args, tookMs: Date.now() - started });
+    res.json(out);
+  }));
 
   router.post("/sources/:id/sync", guard, withOwned(async (req, res, source) => {
     const r = await runSync({ db, config, logger, connectors }, source.id, { manual: true, force: !!req.body?.force });

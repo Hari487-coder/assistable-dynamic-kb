@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live KB — give your Assistable agents live data</title>
+<style>
+:root{color-scheme:light}
+body{font:16px/1.6 system-ui;margin:0;color:#101828;background:#fff}
+.wrap{max-width:760px;margin:0 auto;padding:3rem 1.25rem}
+h1{font-size:2rem;line-height:1.2;margin:0 0 .5rem}
+.sub{color:#475467;font-size:1.05rem;margin-bottom:2.5rem}
+.step{display:flex;gap:1rem;margin:1.5rem 0;padding:1.25rem;border:1px solid #e4e7ec;border-radius:12px}
+.num{flex:none;width:2rem;height:2rem;border-radius:50%;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.step h2{font-size:1.1rem;margin:.1rem 0 .4rem}
+.step p{margin:.25rem 0;color:#475467}
+.btn{display:inline-block;margin-top:.6rem;padding:.6rem 1.1rem;border-radius:8px;background:#7c3aed;color:#fff;text-decoration:none;font-weight:600}
+.btn.alt{background:#f4f1fd;color:#5b21b6}
+.note{background:#fffaeb;border:1px solid #fedf89;border-radius:8px;padding:.75rem 1rem;margin:2rem 0;color:#7a5300;font-size:.95rem}
+.faq{margin-top:3rem;border-top:1px solid #e4e7ec;padding-top:1.5rem}
+.faq h3{font-size:1rem;margin:1rem 0 .25rem}
+.faq p{color:#475467;margin:.25rem 0}
+code{background:#f2f4f7;padding:.1rem .35rem;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Your AI agent, with live data.</h1>
+<p class="sub">Live KB is a knowledge base you own, that your Assistable voice and
+chat agents query in real time — inventory, products, prices, availability.
+Free to run. Three clicks to set up. Your data never touches anyone else's server.</p>
+
+<div class="step"><div class="num">1</div><div>
+<h2>Create a free Render account &amp; deploy your Live KB</h2>
+<p>One click below. Sign in with Google or GitHub — Render hosts your personal
+instance for free and gives it a secure HTTPS address. Nothing to configure.</p>
+<a class="btn" href="https://render.com/deploy?repo=REPLACE_WITH_PUBLIC_REPO_URL">Deploy my Live KB — free</a>
+<a class="btn alt" href="../docs/SELF-HOSTING.md">Other options (Docker / always-free VM)</a>
+</div></div>
+
+<div class="step"><div class="num">2</div><div>
+<h2>Open your new Live KB and create your account</h2>
+<p>When Render finishes (~2 minutes), open your instance's URL. The first
+account created becomes the owner and sign-ups close automatically — it's
+yours alone.</p>
+</div></div>
+
+<div class="step"><div class="num">3</div><div>
+<h2>Follow the in-app setup</h2>
+<p>The setup page walks you through the rest: paste your Assistable API key,
+add your data (CSV, feed, website, or database), tick which assistants get the
+tool — it's created in your Assistable account automatically — then paste one
+paragraph into your assistant's prompt and test it live on the same page.</p>
+</div></div>
+
+<p class="note"><b>Free-tier note:</b> Render's free plan sleeps after 15 idle
+minutes and its disk resets on redeploys — great for trying it out. For real
+customer traffic, the <i>always-free VM</i> option (one command, permanent
+disk) is the recommended $0 production home.</p>
+
+<div class="faq">
+<h3>What accounts do I need?</h3>
+<p>Just two: Render (free, hosts your instance) and your existing Assistable
+account (for the API key). The VM option swaps Render for Oracle Cloud.</p>
+<h3>Does it work on phone calls?</h3>
+<p>Yes — the same tool serves voice and chat automatically. Answers come back
+in well under a second with a ready-to-speak summary.</p>
+<h3>What data can I connect?</h3>
+<p>CSV uploads, feed URLs (JSON/CSV/XML — every DMS and store platform can
+export one), whole websites, and read-only Postgres/Supabase.</p>
+<h3>What does it cost?</h3>
+<p>Nothing. No paid APIs, no paid database, free hosting tiers. The design
+goal was $0 to run — which also made it fast: lookups are ~30-60ms.</p>
+</div>
+</div>
+</body>
+</html>

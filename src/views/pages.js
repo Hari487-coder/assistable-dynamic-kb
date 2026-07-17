@@ -25,7 +25,7 @@ function formJson(f){const o={};new FormData(f).forEach((v,k)=>{o[k]=v});return 
 }
 
 const authForm = (action, label) => `
-<h1>${label}</h1><form onsubmit="api('${action}',formJson(this)).then(o=>o.ok&&(location='/sources'));return false">
+<h1>${label}</h1><form onsubmit="api('${action}',formJson(this)).then(o=>o.ok&&(location='/setup'));return false">
 <input name="email" type="email" placeholder="email" required>
 <input name="password" type="password" placeholder="password (min 10 chars)" minlength="10" required>
 <button>${label}</button></form>
@@ -78,6 +78,44 @@ async function submitSource(f){
   if (o.ok) location = '/sources/' + o.source_id;
 }
 </script>`);
+
+const stepChip = (done) => `<span class="chip ${done ? "active" : "never_synced"}">${done ? "done" : "to do"}</span>`;
+
+export const setupPage = (state) => {
+  const toolName = state.firstTool?.tool_id ? state.firstToolName : "your live data tool";
+  const snippet = `For ANY question about ${state.firstSourceName || "your live data"}, ALWAYS call ${toolName} first and answer only from the result. If it returns nothing, say you don't have that information. When a speech_hint is present, read it aloud. If data_freshness is "stale", say the info is as of the last update.`;
+  return layoutPage("Setup", `
+<h1>Set up your Live KB</h1>
+<p>Four steps and your Assistable agents answer from live data - on calls and in chat.</p>
+<ol style="padding-left:1.2rem">
+<li><p><b>Connect your Assistable account</b> ${stepChip(state.connected)}<br>
+Paste your v3 API key so this portal can create tools in <i>your</i> account.
+${state.connected ? "" : `<br><a href="/connect"><button>Connect Assistable</button></a>`}</p></li>
+<li><p><b>Add your first live data source</b> ${stepChip(state.sourceCount > 0)}<br>
+CSV, feed URL, website, or database. The first sync runs immediately and the
+custom tool is created and attached to the assistants you pick.
+${state.sourceCount > 0 ? `<br>Source: <a href="/sources/${esc(state.firstSourceId)}">${esc(state.firstSourceName)}</a>${state.firstTool?.tool_id ? ` - tool <code>${esc(state.firstTool.tool_id)}</code> on ${esc(JSON.parse(state.firstTool.assistant_ids_json).length)} assistant(s)` : ` - <span class="err">tool not created yet (connect Assistable, then re-create the source)</span>`}` : `<br><a href="/sources/new"><button ${state.connected ? "" : "disabled"}>Add source</button></a>`}</p></li>
+<li><p><b>Paste this into your assistant's instructions</b> (in Assistable) ${stepChip(false)}<br>
+<textarea id="snippet" readonly rows="4">${esc(snippet)}</textarea>
+<button onclick="navigator.clipboard.writeText(document.getElementById('snippet').value);this.textContent='Copied!'">Copy</button><br>
+<small>If the assistant has a static KB covering the same topic, unlink those docs - they compete with live data on voice.</small></p></li>
+<li><p><b>Test it live</b><br>
+${state.sourceCount > 0 ? `
+<form onsubmit="testSearch(this);return false">
+<input name="q" placeholder='Try: do you have a 2022 tacoma under 30k' required>
+<button>Ask</button></form>
+<pre id="testout" style="white-space:pre-wrap;background:#f6f6f9;padding:8px;border-radius:6px;display:none"></pre>
+<script>
+async function testSearch(f){
+  const out = await api('/sources/${esc(state.firstSourceId)}/test', { query: f.q.value });
+  const el = document.getElementById('testout');
+  el.style.display = 'block';
+  el.textContent = (out.speech_hint ? 'Agent would say: "' + out.speech_hint + '"\\n\\n' : '') + JSON.stringify(out, null, 1);
+}
+</script>` : `<i>Add a source first.</i>`}
+Then call your assistant and ask for real.</p></li>
+</ol>`);
+};
 
 export const sourceDetailPage = (source, runs, tool, calls, unanswered) => layoutPage(source.name, `
 <h1>${esc(source.name)} <span class="chip ${esc(source.status)}">${esc(source.status)}</span></h1>
