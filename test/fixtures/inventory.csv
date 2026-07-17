@@ -1,0 +1,6 @@
+make,model,year,price,mileage,vin,color,status
+Toyota,Tacoma,2022,"$28,500",31000,VIN001,Silver,available
+Toyota,Tacoma,2021,"$26,900",44000,VIN002,Red,available
+Toyota,Tundra,2023,"$41,000",12000,VIN003,Black,available
+Honda,Civic,2021,"$19,900",38000,VIN004,White,available
+Chevrolet,Silverado,2022,"$36,750",25500,VIN005,Blue,pending
