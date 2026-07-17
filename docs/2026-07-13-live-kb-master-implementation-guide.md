@@ -9,6 +9,11 @@ in real time to answer from trusted, current knowledge.
 public v3 API with the customer's own key, invoked by the platform's tool proxy
 during conversations. Every fact about that surface below is verified in the
 platform source (`Case Study/_assistable-code`, cited as `repo path:line`).
+**Hard constraint: $0 run cost.** No paid APIs (no OpenAI embeddings), no paid
+databases, no paid hosting. Every component below is free-tier or self-hosted
+free software, and the hot path is engineered to need **zero external calls** —
+which is simultaneously the cheapest and the fastest design. Paid upgrades are
+listed only as explicit revenue-gated triggers (§17).
 
 ---
 
@@ -108,34 +113,58 @@ p95 ≤ 60s (push); RPO ≤ 5min / RTO ≤ 30min.
 
 ## 3. Architecture & stack
 
-**Stack (chosen for the team's actual experience and the MVP already planned):**
-- **App:** Node 22, Express, plain ESM JS — same as the built KB Bridge plan;
-  two deployables from one repo: `web` (portal + webhook) and `worker`
-  (ingestion). Stateless; scale horizontally.
-- **Database:** Postgres 16 (Neon) with **pgvector + FTS** — system of record
-  for tenants, sources, versions, chunks, embeddings, logs. (The MVP plan's
-  SQLite remains valid for validation; §17 gives the migration seam. Production
-  targets Postgres from day one for concurrency + vectors.)
-- **Cache/queues:** Upstash Redis — query cache, embedding cache, rate limits;
-  BullMQ for ingestion jobs (jobIds use `-` separators, never `:` — BullMQ
-  rejects colons).
-- **Files:** Cloudflare R2 for uploaded documents (originals kept for
-  re-processing).
-- **Embeddings:** OpenAI `text-embedding-3-small` (1536-d) on OUR key — cost
-  is ours, controlled by hash-gating + caching (§6) and plan limits (§19).
-- **Hosting:** Render (team's existing pattern) — `web` ×N instances +
-  `worker` ×M + managed Postgres/Redis externally. Health checks + zero-downtime
-  deploys are stock Render behavior.
-- **Errors/observability:** Sentry-compatible (self-hosted GlitchTip instance
-  already exists at error.createassistants.com — reuse) + structured JSON logs.
+**Stack — everything $0, chosen so the hot path makes zero external calls:**
+- **App:** Node 22, Express, plain ESM JS — exactly the built KB Bridge plan.
+  ONE process: web + webhook + in-process sync scheduler (no separate worker
+  fleet — it must fit one free machine).
+- **Database:** **SQLite (better-sqlite3, WAL) is the production database**,
+  not just the MVP one. Zero cost, zero cold starts, microsecond reads, FTS5
+  BM25 built in, backups are file copies. A Postgres seam is retained in
+  `db.js`/`search/` but migration is a **revenue-gated trigger** (§17), not a
+  roadmap item.
+- **Semantic search (optional, still $0):** local embeddings via
+  `fastembed-js` (or transformers.js) running `all-MiniLM-L6-v2` (384-d,
+  Apache-2.0) on CPU + `sqlite-vec` for ANN — no API, no spend. Ship
+  **BM25-first**; enable local vectors per-KB when quality demands (§7.2).
+  CPU query-embed cost ≈ 20-60ms on a 4-core box — inside budget.
+- **Cache/queues:** none external. In-process LRU for query results and
+  embeddings; the MVP plan's SQLite-backed scheduler with heartbeats does jobs.
+  No Redis anywhere.
+- **Files:** local disk (`data/files/`), originals kept for re-processing;
+  optional nightly `rclone` of backups to a free-tier bucket (Cloudflare R2
+  10GB free) — free-tier, not paid.
+- **Hosting ($0 AND always-on — the crux, because a cold start blows the 10s
+  voice budget):**
+  1. **Recommended: Oracle Cloud Always Free ARM (A1)** — up to 4 OCPU / 24GB
+     RAM, free forever, a real always-on VM with no idle spin-down. Caddy for
+     automatic TLS + a free hostname (DuckDNS) or any owned domain. This is the
+     production home.
+  2. **Pilot-simple: Render free web service** — free stable
+     `*.onrender.com` HTTPS URL, but idles after 15min; pair with a free
+     uptime pinger (UptimeRobot, 5-min interval) to stay warm. Fine for design
+     partners; not for paying customers (rare cold starts remain).
+  3. **Dev/demo:** Cloudflare Tunnel from any machine.
+- **Errors/observability:** JSON logs to disk + logrotate; free Sentry
+  developer tier or the existing self-hosted GlitchTip — both $0. UptimeRobot
+  free for external uptime alerts.
 
-**Why not serverless:** the hot path needs warm connections to Postgres/Redis
-and sub-400ms p95 including an occasional embedding call; long-lived Node
-processes with connection pools are the boring, correct answer.
+**Why this wins on latency too:** the BM25 + structured hot path is SQLite
+reads and in-process code — **no network call leaves the box** during a tool
+call. Server-side p95 lands ~10-50ms, an order of magnitude inside the budget,
+because the $0 design and the fast design are the same design.
 
 ---
 
-## 4. Data model (Postgres)
+## 4. Data model
+
+> **DDL note:** the logical model below is written in Postgres syntax for
+> precision, but **production runs it on SQLite**: `UUID`→`TEXT`
+> (crypto.randomUUID), `TIMESTAMPTZ`→ISO-8601 `TEXT`, `JSONB`→`TEXT` +
+> `json_extract`, `TSVECTOR/GIN`→an `items_fts` FTS5 contentless table with
+> sync triggers (exactly as in the MVP plan), `VECTOR`→`sqlite-vec` virtual
+> table (only when local embeddings are enabled), arrays→JSON text. The
+> Postgres form becomes literal only if the revenue-gated migration (§17) ever
+> fires.
 
 ```sql
 CREATE TABLE tenants (
@@ -276,8 +305,8 @@ inference (numeric / categorical ≤25 distincts / text) persisted as
    `POST /api/v1/sources/:id/refresh` (re-pull now). Auth: tenant API key +
    optional HMAC `X-LiveKB-Signature: sha256=…` (constant-time). This is
    "a car sold → gone from answers in under a minute."
-2. **Schedules:** BullMQ repeatable sweep every 30s enqueues due sources
-   (`next_run_at`, ±10% jitter).
+2. **Schedules:** the in-process scheduler sweeps every 30s and runs due
+   sources (`next_run_at`, ±10% jitter).
 3. **Manual:** portal "Sync now" (+ `force` to bypass the shrink gate).
 
 **Change detection:** `content_hash` over normalized content BEFORE any
@@ -297,22 +326,28 @@ heartbeat → `failed`.
 
 ---
 
-## 6. Indexing pipeline (workers)
+## 6. Indexing pipeline (in-process)
+
+One scheduler loop (30s tick, the MVP engine) drives staged jobs — no external
+queue system:
 
 ```
-queue kb-ingest   (worker, conc 4)  fetch → normalize → chunk → hash gate
-queue kb-embed    (worker, conc 2)  batch embed (≤128/call) → write chunks
-queue kb-activate (worker, conc 8)  gate → version flip → cache bust → notify
-queue kb-gc       (daily)           superseded versions, query_log retention (90d)
+stage ingest    (conc 2 across sources)  fetch → normalize → chunk → hash gate
+stage embed     (only if vectors enabled) local model, batched, CPU
+stage activate                            gate → version flip → cache bust → notify
+stage gc        (daily)                   superseded versions, query_log retention (90d)
 ```
 
-- Embedding cost controls: Redis cache keyed `sha256(text)` (30d TTL) — re-syncs
-  of mostly-unchanged content re-embed almost nothing; per-tenant daily embed
-  budget by plan (§19) with a clear "budget exhausted, sync paused" state.
-- Idempotency: deterministic chunk IDs + `ON CONFLICT DO UPDATE`; deterministic
-  jobIds `kb-ingest-{sourceId}-{versionNum}`.
-- Every stage writes progress to `sync_runs`; the portal shows a live pipeline
-  view per sync.
+- Embedding cost is CPU time, not money: local model, hash-cache keyed
+  `sha256(text)` in a SQLite table (re-syncs of mostly-unchanged content
+  re-embed almost nothing). Big ingests are throttled (chunk batches of 64,
+  yield between batches) so the hot path never starves — Node is
+  single-threaded; run the embedder in a `worker_threads` pool sized
+  `cores - 1` to keep webhook latency flat during syncs.
+- Idempotency: deterministic chunk IDs + upsert; deterministic run keys
+  `kb-ingest-{sourceId}-{versionNum}`.
+- Every stage writes progress to `sync_runs` (heartbeats, crash recovery on
+  boot); the portal shows a live pipeline view per sync.
 
 ---
 
@@ -332,19 +367,31 @@ Two engines, one webhook, dispatched by source/tool kind.
   such with what differs. **Never a bare empty result**: "no 2022 Tacoma under
   $30k, but a 2021 at $26,900" is the money answer on a live call.
 
-### 7.2 Hybrid semantic (docs, websites, FAQs)
+### 7.2 Hybrid semantic (docs, websites, FAQs) — BM25-first, vectors optional
 
-1. Normalize query (no LLM rewriting on the hot path — latency).
-2. Parallel candidates: pgvector HNSW cosine topK 20 ‖ FTS
-   `websearch_to_tsquery` topK 20 — both tenant+kb scoped in SQL.
-3. Reciprocal Rank Fusion (`Σ 1/(60+rank)`), dedupe, top 12.
-4. Keyword-overlap rerank (weight 0.3) — no LLM reranker in v1.
-5. **Confidence floor 0.4** → below it, `answerable:false`, zero chunks. The
-   single biggest anti-hallucination lever; the static KB has no floor at all
-   (verified) — we make "I don't know" a first-class, correct answer.
-6. **Trained answers:** embedding match ≥ 0.85 against curated Q→A pairs
-   short-circuits retrieval (`citation.kind='trained'`) — CS's direct lever
-   when an agent must answer something exactly.
+1. Normalize query (no LLM rewriting on the hot path — latency AND cost).
+2. **Primary leg (always, $0): FTS5 BM25** — sanitized `"token"* OR …` match,
+   `bm25()` ranking with column weights (title/heading 2×), topK 20,
+   tenant+kb scoped.
+3. **Optional second leg (still $0, per-KB flag): local vectors** —
+   `all-MiniLM-L6-v2` query embed (in-process, 20-60ms) → `sqlite-vec` cosine
+   topK 20. Enable when a KB's BM25 answerable-rate disappoints (§15 tells you).
+4. When both legs ran: Reciprocal Rank Fusion (`Σ 1/(60+rank)`), dedupe, top 12;
+   then keyword-overlap rerank (weight 0.3). No LLM reranker.
+5. **Confidence floor** → below it, `answerable:false`, zero chunks. BM25
+   scores are normalized per-query (`score/max_score`) with floor 0.35; vector
+   cosine floors at 0.4. The single biggest anti-hallucination lever; the
+   static KB has no floor at all (verified) — we make "I don't know" a
+   first-class, correct answer.
+6. **Trained answers:** matched by normalized-text equality + BM25-over-trained-
+   queries (vector match ≥ 0.85 when vectors enabled) — short-circuits
+   retrieval (`citation.kind='trained'`); CS's direct lever when an agent must
+   answer something exactly.
+
+BM25 is not a consolation prize here: KB content is domain-narrow (one
+business's docs), where keyword search with stemming + prefix matching performs
+near parity with embeddings — and it's what the zero-cost Support Copilot
+already validated on real support tickets.
 
 ### 7.3 Response contract (what the agent receives — both channels)
 
@@ -404,10 +451,11 @@ competing with ours. Onboarding guidance (enforced by a portal checklist):
 ## 9. Multi-tenancy & permissions
 
 - Every query and every row is scoped by `tenant_id` — denormalized onto
-  `chunks` so no join can widen scope; Postgres **RLS enabled** on `chunks`,
-  `query_log`, `sources` (`USING (tenant_id = current_setting('app.tenant_id')::uuid)`)
-  as defense-in-depth; the app layer sets the GUC per request and remains the
-  primary, tested control.
+  `chunks` so no join can widen scope. SQLite has no RLS, so isolation is
+  structural in the data-access layer: routes can only reach data through
+  `owned*()` functions that take the authenticated tenant id (the KB Bridge
+  `tenant.js` pattern), enforced by the release-gate test suite below.
+  (If the Postgres migration ever fires, RLS gets added as defense-in-depth.)
 - Webhook auth: per-source 32-byte secret in the tool header, constant-time
   compare, 404 on failure (not retried by the proxy — verified). Optionally
   cross-check the `location_id` header against the tenant's connected
@@ -432,21 +480,23 @@ is dead on the Telnyx path (verified). Budget:
 
 | Stage | p95 |
 |---|---|
-| Edge + routing (Render) | 40ms |
-| Auth (secret compare) + tenant resolve | 5ms |
-| Query embedding (semantic only) | 120ms — 0ms on cache hit |
-| SQL (vector ‖ FTS, or JSONB filters) | 60-90ms |
-| Fusion + response build | 10ms |
-| **Total** | **≤ 250-400ms** |
+| Edge + TLS (Caddy on the VM) | 20ms |
+| Auth (secret compare) + tenant resolve | 2ms |
+| Local query embed (ONLY if vectors enabled) | 20-60ms — 0ms BM25-only or cache hit |
+| SQLite (FTS5 ‖ sqlite-vec, or JSON filters) | 5-30ms |
+| Fusion + response build | 5ms |
+| **Total** | **≈ 30-120ms** (BM25/structured path ~30-60ms) |
 
-Tactics: Redis query-result cache (60s TTL, key
+Tactics: in-process LRU query-result cache (60s TTL, key
 `sha256(tenant|source|normalized_args)`, busted on version flip — voice callers
-ask the same 20 questions all day, expect >50% hits); embedding cache (30d);
-prepared statements + pooled connections (pgbouncer/Neon pooler); structured
-path never embeds at all; degraded ladder under the 2.5s deadline: full →
-lexical-only (skip embedding) → cached-any → `answerable:false, degraded:true`.
-**Always HTTP 200** — a spoken "let me check another way" beats the proxy's
-15s×4 retry storm (§1.3) every time.
+ask the same 20 questions all day, expect >50% hits); embedding hash-cache;
+prepared-statement cache (better-sqlite3 makes this trivial); structured path
+never embeds at all; embedder in worker threads so syncs can't spike webhook
+latency; degraded ladder under the 2.5s deadline: hybrid → BM25-only (skip
+embedding) → cached-any → `answerable:false, degraded:true`. **Always HTTP
+200** — a spoken "let me check another way" beats the proxy's 15s×4 retry storm
+(§1.3) every time. Note the zero-cost design is *faster* than the paid one it
+replaced: no network hop can be slower than no network hop.
 
 ---
 
@@ -505,36 +555,51 @@ append-only forever — agents in production depend on its shape.
 
 ## 13. Caching & scalability
 
-- Capacity: 5M chunks ≈ 40-70GB in Postgres incl. HNSW — one Neon instance;
-  200 tool calls/s ≈ ≤600 SQL/s on pooled connections — comfortable. Web tier
-  scales by instance count (stateless); workers by BullMQ concurrency.
-- Cache layers: query results (60s), embeddings (30d), tenant/source auth row
-  (60s), assistant lists (5min, portal only).
-- Backpressure: ingest queues bounded; management API 429s with Retry-After
-  (hot path never does — §1.3).
-- Postgres growth path: read replica for the hot path at >100 qps sustained;
-  partition `chunks` by tenant hash if >20M chunks (not before — YAGNI).
+- **Honest capacity on the free tier:** an Oracle A1 VM (4 OCPU/24GB) running
+  SQLite in WAL serves read-heavy workloads in the thousands of qps; our hot
+  path is 1-3 indexed reads. 200 tool calls/s is comfortably inside that.
+  Storage: 5M chunks ≈ 15-40GB on disk (A1 gives 200GB block storage free) —
+  the free tier is NOT the bottleneck for any realistic first year of this
+  product. The bottleneck is the single box (§14).
+- Cache layers (all in-process): query results (60s), embedding hashes,
+  tenant/source auth rows (60s), assistant lists (5min, portal only).
+- Backpressure: ingest stages bounded + throttled (§6); management API 429s
+  with Retry-After (hot path never does — §1.3).
+- Growth path, strictly revenue-gated (§17): second VM + hot-standby replica →
+  managed Postgres migration through the retained `db.js` seam. Neither before
+  paying customers exist.
 
 ---
 
 ## 14. Reliability: failover, retries, backups, DR
 
-- **Backups:** Neon PITR (RPO ≤ 5min) + nightly logical dump to R2 (30d
-  retention); R2 also holds original uploaded files → full re-ingest is always
-  possible. Redis is losable (cache + queues reconstructible from Postgres
-  state). Restore runbook tested quarterly; RTO ≤ 30min.
+- **Backups ($0):** hourly SQLite `VACUUM INTO` snapshot on local disk
+  (keep 24) + nightly copy off-box via `rclone` to a free-tier bucket
+  (R2 10GB free) or a second free VM — RPO ≤ 60min offsite, ≤ 60s local
+  (WAL survives process crashes; snapshots cover disk loss). Original uploaded
+  files backed up the same way → full re-ingest always possible. Restore =
+  stop, copy file back, start; runbook tested quarterly; RTO ≤ 30min.
 - **Failure behavior:**
   | Failure | Hot-path behavior |
   |---|---|
-  | OpenAI down | Semantic degrades to lexical-only automatically; structured unaffected; ingest pauses with backoff |
-  | Redis down | Cache misses (slower, correct); queues pause; scheduler catches up |
-  | One web instance down | Render load balancer routes around |
-  | Postgres down | Full outage → 200 `{ok:false, answerable:false, degraded:true}` from an in-process circuit breaker so calls never hang; status page + alert |
-- Retries: everything transient retried with jittered backoff at the queue
-  layer; the hot path NEVER retries outward (it has no outbound calls except
-  embeddings, which have the lexical fallback).
-- Deploys: rolling, health-checked; DB migrations expand-then-contract (never
-  break the running version).
+  | Embedder thread crash | BM25-only automatically (`degraded:false` — it's a normal mode); structured unaffected |
+  | Sync/connector failures | Retry ladder → `stale`, last good version keeps serving (§5) |
+  | Process crash | systemd restarts in seconds; WAL means no data loss; scheduler recovers stuck runs on boot |
+  | VM down | UptimeRobot alert; agents get tool-transport errors ("brief connection issue" — the platform's own wording, verified `tool-proxy.service.ts:550-556`) until restart |
+  | Disk full | Monitored (alert at 80%); log rotation + backup retention caps |
+- **The single-box truth, stated honestly:** at $0 there is one VM; its uptime
+  is the product's uptime. Mitigations that stay free: systemd auto-restart,
+  WAL durability, offsite backups, a pre-provisioned cold-standby free VM in a
+  second region (restore latest snapshot + flip DNS — documented drill,
+  ~15-30min). True hot failover is the FIRST paid upgrade (§17), and the
+  200-always contract means even hard downtime degrades to agents apologizing
+  gracefully rather than calls hanging.
+- Retries: everything transient retried with jittered backoff at the sync
+  layer; the hot path NEVER retries outward — with local embeddings it has no
+  outbound calls at all.
+- Deploys: `git pull && npm ci && systemctl restart` behind Caddy (sub-second
+  downtime window, off-peak), health-checked; schema migrations
+  expand-then-contract (never break the running version).
 
 ---
 
@@ -567,8 +632,8 @@ Controls (all specified above, gathered): tenant scoping + RLS + release-gate
 isolation tests (§9) · SSRF guard with IP pinning (§5) · AES-256-GCM envelopes
 for Assistable keys + connector creds, key-id rotation, write-only UI (§4) ·
 per-source secrets, constant-time compare, 404-on-fail (§9) · HMAC on push +
-outbound webhooks (§5, §11) · bound JSONB paths, `websearch_to_tsquery`, ident
-validation (§7) · bcrypt/hashed sessions/CSRF/rate limits (§9) · TLS everywhere,
+outbound webhooks (§5, §11) · bound JSON paths, sanitized FTS5 match
+expressions, ident validation (§7) · bcrypt/hashed sessions/CSRF/rate limits (§9) · TLS everywhere,
 helmet/CSP on portal · append-only `audit_log` (auth events, key changes,
 source/tool CRUD, rollbacks, admin actions) surfaced per-tenant · logger
 redaction · tenant offboarding purge job · dependency audit in CI.
@@ -585,28 +650,40 @@ PATCH; URL/header changes apply to voice immediately — verified §1.5).
 
 **Phase 0 — the KB Bridge MVP (already fully planned):** the 15-task TDD plan
 (`docs/superpowers/plans/2026-07-13-dynamic-kb-portal.md`) IS phase 0 —
-Express + SQLite, structured search, tool provisioning, the verified contract.
-Build it, onboard 2-3 design partners (a dealership, an ecommerce store),
-validate on real calls.
+Express + SQLite, structured search + BM25 text search, tool provisioning, the
+verified contract. Already 100% zero-cost. Build it, onboard 2-3 design
+partners (a dealership, an ecommerce store), validate on real calls via the
+free Render URL + pinger.
 
-**Phase 1 — production substrate (weeks 3-6):** swap the storage layer to
-Postgres behind the existing seams (`db.js`, search modules take a `db` handle;
-FTS5 → tsvector/pgvector is contained in `search/` + `db.js`), BullMQ workers,
-R2 for files, Render deploy (web + worker), GlitchTip wiring. Keep the
-SQLite path as the local-dev/test mode.
+**Phase 1 — free-infra production hardening (weeks 3-5):** move to the Oracle
+Always Free VM: Caddy auto-TLS + domain/DuckDNS, systemd unit with auto-restart,
+hourly `VACUUM INTO` + offsite rclone backups, logrotate, UptimeRobot, disk
+alerts, the cold-standby drill (§14). Versioned sources + validation gates +
+rollback (upgrade from the MVP's batch model to `source_versions`). Free Sentry
+tier wiring.
 
-**Phase 2 — semantic KB (weeks 6-9):** embeddings + hybrid engine + confidence
-floor + citations + trained answers; `knowledge_<slug>` unified tools; docs/
-website/FAQ onboarding polished. Golden-set evals in CI.
+**Phase 2 — semantic KB, still $0 (weeks 5-8):** website/docs/FAQ onboarding
+polished; BM25 engine with normalized floor + citations + trained answers;
+`knowledge_<slug>` unified tools; **local embeddings + sqlite-vec behind a
+per-KB flag** (worker-thread pool); golden-set evals in CI.
 
-**Phase 3 — real-time + product (weeks 9-12):** push API + HMAC, webhook
-events, per-tenant analytics + unanswered-queries flywheel, plans/limits
-(+ Stripe if we charge — §19), onboarding checklist incl. static-KB
-coexistence, OpenAPI docs, status page.
+**Phase 3 — real-time + product (weeks 8-11):** push API + HMAC, outbound
+webhook events, per-tenant analytics + unanswered-queries flywheel, onboarding
+checklist incl. static-KB coexistence, OpenAPI docs, public status page (free
+UptimeRobot page).
+
+**Revenue-gated spend triggers (the ONLY places money ever enters, in order):**
+| Trigger | First spend |
+|---|---|
+| First paying customer | Proper domain (~$10/yr) |
+| ~10 paying customers / uptime complaints | Second VM hot standby, or Render Starter always-on (~$7/mo) |
+| >100 sustained qps or >50GB data | Managed Postgres migration through the `db.js` seam |
+| Enterprise/security asks | Paid Sentry/SSO/etc. |
 
 **Testing throughout:** unit + integration per module (the MVP plan's TDD
 style), tenant-isolation gate, load test at 3× target (k6), chaos drills
-(kill Redis / throttle OpenAI / kill an instance — assert §14 behavior),
+(kill the embedder thread / fail a connector / kill the process mid-sync —
+assert §14 behavior),
 one real-voice-call E2E per release ("2022 Tacoma under $30k" against a
 staging tenant, answer < 1s, correct price).
 
@@ -633,10 +710,13 @@ rollback = previous deploy + version-flip rollback for data.
 
 ## 19. Plans & cost guardrails (operational, not billing advice)
 
-Free: 1 KB, 3 sources, daily sync, 500 queries/mo, lexical-only semantic.
-Pro: hourly sync, push API, semantic retrieval, 10k queries/mo. Scale: custom.
-Enforcement points already in the design: per-tenant embed budget (§6), sync
-frequency floor, hot-path soft rate limit (§9), query_log as the metering source.
+The product itself runs at $0, so launch pricing is free — the guardrails exist
+to protect the shared box, not a bill: per-tenant sync-frequency floor (15min),
+ingest concurrency 2, hot-path soft limit 60/min/source, embed-CPU budget/day,
+max source sizes (20k rows / 50 pages / 20MB feed). `query_log` is already the
+metering source if paid tiers ever exist (hourly sync, push API, vector search,
+higher limits are the natural paid levers). No Stripe until there's something
+to charge for.
 
 ---
 
@@ -645,10 +725,11 @@ frequency floor, hot-path soft rate limit (§9), query_log as the metering sourc
 | Decision | Why |
 |---|---|
 | Standalone product; tools are the ONLY integration | We can't code Assistable's backend; the tool surface is public, verified, and works on both channels automatically |
-| Express + Postgres/pgvector + Redis + Render | Team's proven stack (KB Bridge, attribution-bridge); pgvector+FTS in one store = one consistency + DR story |
+| $0 everything: SQLite + FTS5 + local embeddings + Oracle Always Free | Hard cost constraint; and the no-external-calls hot path is simultaneously the fastest design (~30-120ms vs 250-400ms with API embeddings) |
+| BM25-first, local vectors optional per-KB | Domain-narrow KBs make keyword+stemming near-par with embeddings (validated by the zero-cost Support Copilot); vectors stay available at $0 via fastembed + sqlite-vec |
 | Version-flip freshness | Atomic, rollbackable, idempotent — proven pattern; "live" must never mean "half-updated" |
-| Structured rows first-class, hybrid for prose | Verified static-KB failures: CSV-as-text + no floor; filters beat cosine for facts, RRF beats either alone for prose |
-| 200-always, ≤400ms p95, 2.5s deadline | Verified proxy retry amplification (15s×4) vs Telnyx 10s + silent caller |
+| Structured rows first-class | Verified static-KB failure: CSV-as-text; filters beat cosine for facts |
+| 200-always, 2.5s deadline | Verified proxy retry amplification (15s×4) vs Telnyx 10s + silent caller |
 | Flat forced-required-safe tool schemas, stable | Verified: all top-level params forced required; voice bakes schema at assistant-save |
 | Confidence floor + answerable:false | The anti-hallucination lever the static KB lacks entirely |
-| MVP (SQLite plan) first, Postgres in Phase 1 | Validate with real dealers in weeks, not months; storage seam is contained |
+| Single-box risk accepted, drilled, and revenue-gated | Honest tradeoff of $0; cold-standby drill + WAL + offsite snapshots bound the damage; first dollars buy the second box |
