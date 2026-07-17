@@ -34,6 +34,24 @@ test("setup page shows to-do state, then done state after connect + source", asy
   assert.match(html, /ALWAYS call the live_data_Wizard_Inventory tool/);
 });
 
+test("setup page shows data location panel and scope guidance", async () => {
+  const html = await (await fetch(`${t.base}/setup`, { headers: { cookie } })).text();
+  assert.match(html, /Where your data lives/);
+  assert.match(html, /assistants:list/);
+  assert.match(html, /tools:create/);
+  assert.match(html, /Download backup now/);
+});
+
+test("backup download streams a valid SQLite snapshot, authed only", async () => {
+  const res = await fetch(`${t.base}/backup`, { headers: { cookie } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-disposition") || "", /live-kb-backup-/);
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.equal(buf.subarray(0, 15).toString("utf8"), "SQLite format 3", "must be a real SQLite file");
+  const anon = await fetch(`${t.base}/backup`, { redirect: "manual" });
+  assert.equal(anon.status, 302, "unauthenticated -> redirect to login");
+});
+
 test("test endpoint answers via the same engine, session-authed", async () => {
   const src = t.db.prepare("SELECT id FROM sources WHERE name='Wizard Inventory'").get();
   const res = await fetch(`${t.base}/sources/${src.id}/test`, { method: "POST", headers: H(), body: JSON.stringify({ query: "2022 tacoma" }) });

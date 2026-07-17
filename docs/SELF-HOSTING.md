@@ -65,11 +65,46 @@ auto-restart, and starts the app at `https://kb.yourdomain.com`. Data lives in
 
 ---
 
+## Where your Live KB lives (read this once)
+
+Your entire Live KB — account, sources, synced items, query logs — is **one
+SQLite file on your instance**: `data/kb-bridge.db`. It is created automatically
+on first boot (along with the encryption key at `data/.encryption-key`). Nothing
+is stored on any shared server; deleting your instance deletes your data.
+
+- **Automatic snapshots**: daily `VACUUM INTO data/backups/kb-YYYY-MM-DD.db`,
+  kept 7 days, on the instance itself.
+- **Off-instance copy**: the setup page has a **Download backup now** button
+  (a consistent snapshot, streamed to your machine). Do this after big changes,
+  and always before redeploying on Render's free tier (ephemeral disk).
+- **Restore / migrate**: stop the app, replace `data/kb-bridge.db` with your
+  backup file, start the app. That's the whole procedure — it also moves your
+  Live KB between hosts (e.g. Render trial → Oracle VM): restore the file, set
+  the new `BASE_URL`, and re-create each source's tool (Delete + re-add source)
+  so tools point at the new URL.
+
+## API key: exactly what access to grant
+
+Create a **dedicated** v3 API key in Assistable, scoped to the **one
+subaccount** whose assistants should get live data, with **only** these scopes:
+
+| Scope | Used for |
+|---|---|
+| `assistants : list` | showing your assistant picker |
+| `tools : create` | creating the live-data tool in your account |
+| `tools : update` | assigning the tool to assistants; refreshing its description |
+| `tools : delete` | *optional* — cleanup when you delete a source |
+
+Explicitly **not needed**: knowledge-base, contacts, conversations, calls,
+phone-number, billing, or workspace scopes. The portal verifies the key live,
+stores it AES-256-GCM encrypted, never displays it again, and uses it only for
+the four calls above. Rotate it any time by pasting a new key on the
+Connection page.
+
 ## After deploy: connect Assistable (same for every path)
 
 1. **Sign up** at your URL — first account claims the instance.
-2. **Connection** page → paste your Assistable v3 API key. It's verified live,
-   encrypted at rest, and never shown again.
+2. **Connection** page → paste the API key you just created (scopes above).
 3. **Add a source** — CSV upload, feed URL (JSON/CSV/XML), website, or
    Postgres/Supabase (read-only). First sync runs immediately; a
    `live_data_<name>` tool is created in YOUR Assistable account and assigned

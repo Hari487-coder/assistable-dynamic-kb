@@ -34,13 +34,28 @@ const authForm = (action, label) => `
 export const loginPage = () => layoutPage("Log in", authForm("/login", "Log in"));
 export const signupPage = () => layoutPage("Sign up", authForm("/signup", "Sign up"));
 
+export const scopesBox = () => `
+<fieldset><legend>What access to give this key</legend>
+<p>Create a dedicated API key in Assistable scoped to <b>one subaccount</b> with <b>only</b> these permissions:</p>
+<table>
+<tr><td><code>assistants : list</code></td><td>to show your assistant picker</td></tr>
+<tr><td><code>tools : create</code></td><td>to create the live-data tool in your account</td></tr>
+<tr><td><code>tools : update</code></td><td>to assign the tool to assistants and refresh its description</td></tr>
+<tr><td><code>tools : delete</code></td><td><i>optional</i> - only used to clean up the tool if you delete a source</td></tr>
+</table>
+<p><b>Nothing else.</b> No access to your knowledge bases, contacts, conversations,
+calls, phone numbers, or billing is needed or requested. A key with extra scopes
+still works, but least-privilege is safer - this portal stores the key encrypted
+(AES-256-GCM) and never displays it again.</p></fieldset>`;
+
 export const connectPage = (conn) => layoutPage("Connection", `
 <h1>Assistable connection</h1>
 ${conn ? `<p>Status: <span class="chip active">connected</span></p>` : `<p>Not connected yet.</p>`}
+${scopesBox()}
 <form onsubmit="api('/connect',formJson(this)).then(o=>o.ok&&location.reload());return false">
 <input name="api_key" type="password" placeholder="Paste your Assistable v3 API key" autocomplete="off" required>
 <button>${conn ? "Replace key" : "Connect"}</button></form>
-<p>The key is verified against the Assistable API, encrypted at rest, and never shown again.</p>`);
+<p>The key is verified live against the Assistable API before it is accepted.</p>`);
 
 export const sourcesPage = (sources) => layoutPage("Sources", `
 <h1>Dynamic sources</h1><p><a href="/sources/new">+ Add source</a></p>
@@ -90,6 +105,9 @@ export const setupPage = (state) => {
 <ol style="padding-left:1.2rem">
 <li><p><b>Connect your Assistable account</b> ${stepChip(state.connected)}<br>
 Paste your v3 API key so this portal can create tools in <i>your</i> account.
+Give the key <b>only</b>: <code>assistants:list</code>, <code>tools:create</code>,
+<code>tools:update</code> (and optionally <code>tools:delete</code> for cleanup) -
+no knowledge, contacts, calls, or billing access is needed.
 ${state.connected ? "" : `<br><a href="/connect"><button>Connect Assistable</button></a>`}</p></li>
 <li><p><b>Add your first live data source</b> ${stepChip(state.sourceCount > 0)}<br>
 CSV, feed URL, website, or database. The first sync runs immediately and the
@@ -114,7 +132,16 @@ async function testSearch(f){
 }
 </script>` : `<i>Add a source first.</i>`}
 Then call your assistant and ask for real.</p></li>
-</ol>`);
+</ol>
+<h2>Where your data lives</h2>
+<p>Everything - your account, sources, synced items, logs - is one SQLite file
+<b>on this instance</b>: <code>${esc(state.data.dbFile)}</code>${state.data.dbSizeMb ? ` (${esc(state.data.dbSizeMb)})` : ""}.
+${esc(state.data.itemCount)} live item(s) currently served to your agents.
+Nothing is stored on anyone else's server; delete the instance and the data is gone.</p>
+<p>Automatic daily snapshots are kept on this instance (7 days${state.data.latestBackup ? `, latest: <code>${esc(state.data.latestBackup)}</code>` : " - first one runs tonight"}).
+<a href="/backup"><button>Download backup now</button></a>
+<small>Keep a copy off this machine. Restore = replace <code>data/kb-bridge.db</code> with a backup and restart.
+On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
 };
 
 export const sourceDetailPage = (source, runs, tool, calls, unanswered) => layoutPage(source.name, `

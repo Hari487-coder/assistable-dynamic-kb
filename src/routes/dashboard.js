@@ -1,5 +1,7 @@
 import { Router } from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import multer from "multer";
 import { z } from "zod";
 import { createUser, createSession, sessionUser, requireUser, loginLimiter, verifyPassword, audit, cookieOpts } from "../auth.js";
@@ -87,6 +89,30 @@ export function createDashboardRouter(deps) {
     return makeClient(decryptSecret(conn.api_key_ct, config.encryptionKey));
   };
 
+  const dataStats = (userId) => {
+    const dbFile = path.join(config.dataDir, "kb-bridge.db");
+    let dbSizeMb = null;
+    try {
+      // include WAL: with journal_mode=WAL most recent data lives there until checkpoint
+      const bytes = fs.statSync(dbFile).size +
+        (fs.existsSync(`${dbFile}-wal`) ? fs.statSync(`${dbFile}-wal`).size : 0);
+      dbSizeMb = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    } catch { /* in-memory / test */ }
+    let latestBackup = null;
+    try {
+      latestBackup = fs.readdirSync(path.join(config.dataDir, "backups")).filter((f) => f.startsWith("kb-")).sort().pop() ?? null;
+    } catch { /* no backups yet */ }
+    return {
+      dbFile: dbSizeMb === null ? "in-memory (test mode)" : dbFile,
+      dbSizeMb,
+      itemCount: db.prepare(
+        `SELECT count(*) c FROM items i JOIN sources s ON s.id = i.source_id
+         WHERE s.user_id = ? AND i.batch_id = s.active_batch_id`
+      ).get(userId).c,
+      latestBackup,
+    };
+  };
+
   router.get("/setup", guard, (req, res) => {
     const conn = ownedConnection(db, req.user.id);
     const first = db.prepare("SELECT * FROM sources WHERE user_id = ? ORDER BY created_at ASC LIMIT 1").get(req.user.id);
@@ -99,7 +125,30 @@ export function createDashboardRouter(deps) {
       firstSourceName: first?.name,
       firstTool: tool,
       firstToolName: tool?.tool_id ? `the live_data_${String(first?.name || "").replace(/[^a-zA-Z0-9_-]+/g, "_")} tool` : null,
+      data: dataStats(req.user.id),
     }));
+  });
+
+  // One-click consistent snapshot of the whole instance (VACUUM INTO), streamed
+  // as a download. This is the answer to "where is my data" — a file you hold.
+  router.get("/backup", guard, (req, res) => {
+    const tmp = path.join(config.dataDir, `export-${crypto.randomUUID()}.db`);
+    try {
+      fs.mkdirSync(config.dataDir, { recursive: true });
+      db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''").replace(/\\/g, "/")}'`);
+      audit(db, req.user.id, "backup_downloaded", {});
+      res.setHeader("content-type", "application/octet-stream");
+      res.setHeader("content-disposition", `attachment; filename="live-kb-backup-${new Date().toISOString().slice(0, 10)}.db"`);
+      const stream = fs.createReadStream(tmp);
+      stream.pipe(res);
+      const cleanup = () => fs.unlink(tmp, () => {});
+      stream.on("close", cleanup);
+      stream.on("error", cleanup);
+    } catch (err) {
+      fs.unlink(tmp, () => {});
+      logger.error("backup export failed", { error: String(err) });
+      res.status(500).json({ ok: false, error: "backup failed" });
+    }
   });
 
   router.get("/sources", guard, (req, res) => {
