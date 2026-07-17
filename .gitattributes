@@ -1,0 +1,5 @@
+# Deploy scripts must stay LF or bash on Linux breaks on CRLF.
+*.sh text eol=lf
+render.yaml text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
