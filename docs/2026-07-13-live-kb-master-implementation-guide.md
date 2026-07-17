@@ -1,791 +1,654 @@
-# Assistable Live KB — Master Implementation Guide
+# Live KB — Master Implementation Guide (Standalone Product)
 
-**Status:** v1.0 — 2026-07-13
-**Audience:** engineers building the Live KB into the Assistable platform (`assistable-buildship-replacement-be` + `assistable-v2`), plus Hari as product owner.
-**Scope:** replace the static KB as the primary source of truth for AI agents — real-time, multi-tenant, voice-grade latency, thousands of customers.
-
-Every claim about current behavior below is verified against the platform source
-(`Case Study/_assistable-code`); citations are `repo path:line`. This guide is
-implementation-focused: it says what to build, where it lives, the schemas, the
-budgets, and the rollout order.
-
----
-
-## 0. Executive summary
-
-Assistable's KB today is **frozen-at-upload vector search**: sources are chunked
-and embedded once, retrieval is a raw cosine top-K with no score floor, and there
-is no update path — refresh means delete + re-upload, and until the old source is
-deleted, stale and fresh chunks answer side by side. Structured data (inventory,
-catalogs, price lists) is chunked as blind text, so numeric questions fail.
-
-The Live KB replaces this with a **versioned, event-driven knowledge platform**:
-
-1. **Sources are versioned, not frozen.** Every re-ingest creates a new version;
-   an atomic pointer swap makes it live; the previous version is retained for
-   instant rollback. Refresh is a first-class, automatic operation.
-2. **Retrieval is hybrid**: pgvector semantic + Postgres full-text (BM25-like)
-   fused with Reciprocal Rank Fusion, plus **structured filter search** for
-   tabular sources — so "2022 Tacoma under $30k" is a SQL predicate, not a
-   cosine guess.
-3. **Answers carry citations and calibrated confidence**, with an explicit
-   "not answerable" outcome so agents say "I don't know" instead of hallucinating.
-4. **Voice-grade latency** is engineered end to end: the Telnyx webhook budget is
-   10s hard; we target p95 ≤ 400ms for the full retrieval round trip.
-5. **Multi-tenant by construction**: every row and every query is scoped by
-   `subAccountId`; retrieval cannot cross tenants.
-
-Crucially, this is **not a greenfield system**. It is built on the stack the
-platform already runs (Fastify BE on EC2/Traefik, BullMQ + Redis, Neon Postgres
-with pgvector already in the schema, QStash/Vercel on the v2 side), and about
-half of the retrieval engine already exists in v2's KB playground — it was simply
-never promoted to the production path. The plan below promotes, hardens, and
-extends what exists rather than inventing parallel machinery.
+**Status:** v2.0 — 2026-07-13 (v1 was platform-native; superseded — we cannot code
+Assistable's backend, so the Live KB is a **standalone product**. v1 is in git history.)
+**What it is:** a multi-tenant Live Knowledge Base SaaS. Assistable customers sign
+up, connect their data, and their AI agents (voice + chat) call our tool endpoint
+in real time to answer from trusted, current knowledge.
+**Integration surface:** Assistable custom tools only — provisioned through the
+public v3 API with the customer's own key, invoked by the platform's tool proxy
+during conversations. Every fact about that surface below is verified in the
+platform source (`Case Study/_assistable-code`, cited as `repo path:line`).
 
 ---
 
-## 1. Current state (verified baseline) and why it must change
+## 0. Product shape in one page
 
-| Area | Today (verified) | Consequence |
-|---|---|---|
-| Chat retrieval | Embed raw last message (`text-embedding-3-small`) → Pinecone topK 3 per namespace, no score floor, no rerank; chunks appended to prompt (`be/packages/api/src/services/agent-run.ts:957-999`) | Irrelevant chunks injected when KB has nothing better; follow-ups embed without context |
-| Voice retrieval | One `knowledge_base` GET webhook per agent → `/knowledge-base/retrieval/:id`, topK 6, `{recommendations: string[]}`, $0.01/query billed via Redis (`be/.../routes/knowledge-base.ts:64-144`) | Only ONE KB per voice agent (newest linked wins, `telnyx-agent.ts:92-99`); no floor; raw chunks |
-| Hybrid pipeline | Exists — query contextualization, pg FTS, rerank, 0.4 floor — but **playground-only** (`v2/.../rag-chat.service.ts:66-117,1026`) | Production never benefits |
-| Chunking | 1000 chars / 200 overlap, paragraph splitter; **CSV parsed as raw text** (`v2/.../chunking.service.ts:17`, `unstructured.service.ts:106`) | Tabular rows severed mid-record; numeric filters impossible |
-| Freshness | Vectors written once; deleted only on explicit source delete; non-deterministic vector IDs mean re-processing duplicates (`v2/.../knowledge-processor.service.ts:62,104,347`) | No refresh path; stale+fresh compete on cosine score |
-| v3 API ingestion | Sources created `PENDING`; **nothing processes them** — no cron, no worker (`be/.../routes/v3/knowledge.ts:282-284`) | The public API silently produces dead sources |
-| Query Training | Stored + embedded but consulted only in the playground (`v2/.../rag-chat.service.ts:725`) | Dead product feature |
-| Multi-KB voice | `voiceEnabled` not checked at retrieval (`be/.../routes/v3/knowledge.ts:41-56` vs retrieval route) | Confusing product behavior |
+```
+ Customer                        Live KB (our product)                    Assistable
+┌──────────┐  signup/connect   ┌──────────────────────────┐   v3 API    ┌──────────────┐
+│ Dealer / │ ───────────────►  │ Portal (web app)         │ ──────────► │ creates tool │
+│ Ecom /   │  add sources      │  KBs · sources · tools   │  customer's │ assigns to   │
+│ Services │                   │  analytics · billing     │  API key    │ assistants   │
+└──────────┘                   ├──────────────────────────┤             └──────┬───────┘
+      docs/PDF/site/FAQ/       │ Ingestion pipeline       │                    │ caller asks
+      feed/CSV/DB/push  ─────► │  version → chunk → index │             ┌──────▼───────┐
+                               ├──────────────────────────┤  tool call  │ voice / chat │
+                               │ Retrieval engine         │ ◄────────── │ agent (via   │
+                               │  hybrid + structured     │  webhook    │ tool proxy)  │
+                               │  citations + confidence  │ ──────────► │ speaks answer│
+                               └──────────────────────────┘  ≤400ms     └──────────────┘
+```
 
-These are not style complaints; each maps to a customer-visible failure mode
-(wrong price quoted, stale inventory offered, API integrations that never work).
+- The agent treats our endpoint as a tool: `knowledge_lookup` (semantic) and/or
+  `search_inventory`-style typed tools (structured). One tool works on **both**
+  voice and chat automatically — the platform has no channel field; every
+  assistant-linked FUNCTION/CUSTOM tool ships to both surfaces (verified:
+  `ToolChannel` enum is dead code, `be/.../telnyx-tool-translator.ts:878`,
+  `tool.model.prisma:11-15`).
+- We never touch Assistable's backend. We provision tools with the customer's
+  key (`POST /v3/tools`, `POST /v3/tools/:id/assign`) and serve the webhook.
+- The static KB stays whatever it is; our product wins by being **live,
+  filterable, cited, and honest** — and by the onboarding step that tells the
+  agent to prefer us (§12).
+
+---
+
+## 1. The integration contract (verified — build against this, not hope)
+
+These are the physics of our world; every design choice downstream honors them.
+
+1. **Who calls us:** Assistable's backend proxy (`executeProxiedTool`) for BOTH
+   channels — voice goes Telnyx → their proxy → us; chat calls the same function
+   in-process (`be/.../services/tool-proxy.service.ts:481-534`, `agent-run.ts:345-371`).
+2. **Request:** `POST`, JSON envelope `{args: <LLM args>, meta_data:{tool_id,
+   location_id, contact_id, assistant_id, to, from, direction}, metadata:<same>,
+   call:{call_id}}`. `executionType` is not settable via API → always envelope;
+   parse defensively (accept raw args). Context arrives as HTTP headers
+   (`location_id`, `assistant_id`, `call_control_id`, `direction`; `contact_id`
+   missing on ~8-17% of voice calls). Our secret header from the tool's
+   `headers` map arrives verbatim (`tool-proxy.service.ts:415-507`).
+3. **Time & retries:** Telnyx gives the whole round trip **10s**; the proxy
+   fetch is 15s × up to 4 attempts and **retries 5xx and 429**
+   (`be/.../lib/http.ts:37-100`, translator `:627`). Therefore: p95 ≤ 400ms,
+   hard deadline 2.5s, **always HTTP 200** with error JSON for handled failures;
+   404 (not retried) only for auth failure. Never 5xx, never 429 on the hot path.
+4. **Response handling:** chat feeds `JSON.stringify(body)` to the LLM
+   untruncated; voice wraps as `{return: body}`. Keep ≤ ~1200 chars, include a
+   `speech_hint` the voice model can read aloud (`tool-proxy.service.ts:558-618`).
+5. **Tool schema:** all top-level params are FORCED required on both channels
+   (`telnyx-tool-translator.ts:601-605`; chat tool-loader same policy) → flat,
+   stable schema with `""`/`0` = "not specified" sentinels. Voice bakes
+   name/description/params at assistant-save; URL/header changes apply per-call
+   (`telnyx-agent.ts:44`) → schema churn requires customer re-save; keep schema
+   stable, put changing vocabulary in descriptions.
+6. **Provisioning API:** `POST /v3/tools` (name `^[a-zA-Z0-9_-]{1,64}$`, 409 on
+   dup), `PATCH` fully replaces headers/params, assign/remove per assistant,
+   `GET /v3/assistants` for the picker (omit `include_archived` — coerce-boolean
+   footgun). Envelope `{data,error,request_id}`; limits 150 req/10s + 100k/day
+   per workspace+subaccount (`be/.../routes/v3/tools.ts`, `_schemas.ts:615`,
+   `rate-limit-config.service.ts:20-22`). Tool headers are stored plaintext and
+   readable with `tools:READ` — our per-source secrets must be revocable and
+   low-privilege (scoped to one source's search only), which they are by design.
+7. **What we're beating:** static KB = embed-raw-query → Pinecone top-3 (chat) /
+   top-6 (voice, $0.01/query), no score floor, CSV chunked as blind text, no
+   refresh path (`agent-run.ts:957-999`, `routes/knowledge-base.ts:64-144`,
+   v2 `chunking.service.ts:17`, `knowledge-processor.service.ts:104,347`).
 
 ---
 
 ## 2. Goals, non-goals, SLOs
 
 **Goals**
-- G1. Freshness: a source change is queryable within **60s** (push/webhook) or
-  one schedule tick (pull), with per-answer `as_of` visibility.
-- G2. Accuracy: structured questions answered by structured search; unstructured
-  by hybrid retrieval with a confidence floor and citations.
-- G3. Latency: retrieval API p95 ≤ **300ms** server-side (chat), ≤ **400ms** for
-  the voice webhook round trip; hard internal deadline 2.5s with a degraded-but-
-  valid response (never a timeout the proxy retries — see §11).
-- G4. Scale: 5,000 tenants, 5M chunks, 200 retrievals/s sustained without
-  architecture change.
-- G5. Tenancy: zero cross-tenant reads, provable by test.
-- G6. Operability: every retrieval traceable (query → candidates → answer), and
-  retrieval quality measurable week over week.
+- G1. Freshness ≤ 60s for push sources; schedule-bound for pull; per-answer `as_of`.
+- G2. Structured questions answered structurally; unstructured via hybrid
+  retrieval with confidence floor + citations; explicit `answerable:false`.
+- G3. Webhook p95 ≤ 400ms; hard 2.5s degraded response; 200-always.
+- G4. Scale: 5,000 tenants, 5M chunks, 200 tool calls/s, without re-architecture.
+- G5. Zero cross-tenant reads, provable by test.
+- G6. Self-serve onboarding end-to-end in < 15 minutes.
 
-**Non-goals (v1)**
-- Cross-tenant/global knowledge sharing; marketplace content.
-- Fine-tuning or per-tenant embedding models.
-- Replacing Pinecone on day one (dual-read migration, §17).
-- Real-time collaborative editing of KB documents.
+**Non-goals (v1):** editing documents in-app; cross-tenant shared knowledge;
+per-tenant embedding models; mobile app.
 
-**SLOs**
-| Metric | Target |
-|---|---|
-| Retrieval availability | 99.9% monthly |
-| Retrieval p95 (server) | ≤ 300ms |
-| Ingest freshness (push) | ≤ 60s p95 |
-| Failed-sync detection | ≤ 1 tick (30s) + alert |
-| RPO / RTO | ≤ 5 min / ≤ 30 min (§14) |
+**SLOs:** availability 99.9% (hot path); webhook p95 ≤ 400ms; ingest freshness
+p95 ≤ 60s (push); RPO ≤ 5min / RTO ≤ 30min.
 
 ---
 
-## 3. System architecture
+## 3. Architecture & stack
 
-```
-                        ┌────────────────────────────────────────────┐
-                        │              Assistable v2 (Vercel)        │
-                        │  KB UI: sources, versions, tags, analytics │
-                        └───────────────┬────────────────────────────┘
-                                        │ tRPC / v3 API
-┌───────────────┐   webhooks/push   ┌───▼─────────────────────────────────┐
-│ Customer data │ ────────────────► │        Live KB service (BE repo)    │
-│ docs/sites/   │   pull (sched.)   │  Fastify routes  ·  BullMQ workers  │
-│ feeds/DBs     │ ◄──────────────── │  ┌──────────┐  ┌─────────────────┐  │
-└───────────────┘                   │  │ Ingestion │  │ Retrieval engine│  │
-                                    │  │ pipeline  │  │ hybrid+struct.  │  │
-                                    │  └─────┬────┘  └────────┬────────┘  │
-                                    └────────┼────────────────┼───────────┘
-                                             │                │
-                              ┌──────────────▼──┐   ┌─────────▼──────────┐
-                              │ Neon Postgres   │   │ Upstash Redis      │
-                              │ pgvector + FTS  │   │ cache · queues ·   │
-                              │ (system of      │   │ rate limits        │
-                              │  record)        │   └────────────────────┘
-                              └─────────────────┘
-                                             ▲
-              ┌──────────────────────────────┴───────────────────────────┐
-              │ Consumers: chat agent-run · Telnyx voice webhook ·       │
-              │ chat widget · v3 public API · (KB Bridge live-data tools)│
-              └──────────────────────────────────────────────────────────┘
-```
+**Stack (chosen for the team's actual experience and the MVP already planned):**
+- **App:** Node 22, Express, plain ESM JS — same as the built KB Bridge plan;
+  two deployables from one repo: `web` (portal + webhook) and `worker`
+  (ingestion). Stateless; scale horizontally.
+- **Database:** Postgres 16 (Neon) with **pgvector + FTS** — system of record
+  for tenants, sources, versions, chunks, embeddings, logs. (The MVP plan's
+  SQLite remains valid for validation; §17 gives the migration seam. Production
+  targets Postgres from day one for concurrency + vectors.)
+- **Cache/queues:** Upstash Redis — query cache, embedding cache, rate limits;
+  BullMQ for ingestion jobs (jobIds use `-` separators, never `:` — BullMQ
+  rejects colons).
+- **Files:** Cloudflare R2 for uploaded documents (originals kept for
+  re-processing).
+- **Embeddings:** OpenAI `text-embedding-3-small` (1536-d) on OUR key — cost
+  is ours, controlled by hash-gating + caching (§6) and plan limits (§19).
+- **Hosting:** Render (team's existing pattern) — `web` ×N instances +
+  `worker` ×M + managed Postgres/Redis externally. Health checks + zero-downtime
+  deploys are stock Render behavior.
+- **Errors/observability:** Sentry-compatible (self-hosted GlitchTip instance
+  already exists at error.createassistants.com — reuse) + structured JSON logs.
 
-**Placement decisions**
-
-- **The Live KB lives in the BE repo** (`assistable-buildship-replacement-be`) as
-  a module: `packages/api/src/services/kb/` + `routes/v3/kb.ts` + BullMQ workers.
-  Reasons: retrieval consumers (agent-run, telnyx webhook, chat widget) are
-  already there; BullMQ/Redis is already there; it deploys as N replicas behind
-  Traefik with a 1000 req/s design target (BE CLAUDE.md). v2 keeps the UI and
-  its upload flows but delegates processing to the same pipeline.
-- **Postgres (Neon) is the system of record** for documents, versions, chunks,
-  embeddings (pgvector — the `knowledgeChunk.embedding` column already exists),
-  and FTS. Pinecone remains a secondary index during migration only (§17).
-  One store = one consistency story = simpler DR.
-- **Schema-parity rule applies**: every new model added for Live KB MUST be
-  mirrored verbatim in both repos' Prisma schemas with `/// Owned by` directives
-  (both CLAUDE.mds; the parity CI blocks drift). Never `db push --accept-data-loss`.
-- **Structured live-data sources** (inventory/catalog feeds, customer DBs) use
-  the tool-based structured search engine designed and validated in the KB Bridge
-  project (`assistable-dynamic-kb` spec + plan). In-platform, that engine becomes
-  source type `STRUCTURED` with the same atomic-batch, filter-search, and
-  relaxation semantics — served from the same retrieval API.
+**Why not serverless:** the hot path needs warm connections to Postgres/Redis
+and sub-400ms p95 including an occasional embedding call; long-lived Node
+processes with connection pools are the boring, correct answer.
 
 ---
 
-## 4. Data model
-
-New tables (Prisma models mirrored in both repos; DDL shown for clarity).
-Existing `KnowledgeBase` / `KnowledgeSource` stay; new tables attach to them.
+## 4. Data model (Postgres)
 
 ```sql
--- One row per ingest run that produced content. Versioning backbone.
-CREATE TABLE kb_source_version (
-  id            TEXT PRIMARY KEY,
-  source_id     TEXT NOT NULL REFERENCES "knowledgeSource"("_id") ON DELETE CASCADE,
-  version_num   INTEGER NOT NULL,               -- monotonic per source
-  content_hash  TEXT NOT NULL,                  -- sha256 of normalized content
-  status        TEXT NOT NULL DEFAULT 'building' -- building|active|superseded|failed|rolled_back
-    CHECK (status IN ('building','active','superseded','failed','rolled_back')),
-  item_count    INTEGER,
-  column_meta   JSONB,                          -- structured sources: inferred columns
-  error         TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  activated_at  TIMESTAMPTZ,
-  UNIQUE (source_id, version_num)
+CREATE TABLE tenants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email CITEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+  plan TEXT NOT NULL DEFAULT 'free', created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- Chunks belong to a VERSION, not directly to a source.
-CREATE TABLE kb_chunk (
-  id            TEXT PRIMARY KEY,               -- DETERMINISTIC: {versionId}_{idx}
-  version_id    TEXT NOT NULL REFERENCES kb_source_version(id) ON DELETE CASCADE,
-  sub_account_id TEXT NOT NULL,                 -- denormalized for tenant-scoped queries
-  kb_id         TEXT NOT NULL,
-  chunk_index   INTEGER NOT NULL,
-  text          TEXT NOT NULL,
-  heading_path  TEXT,                           -- "Service Dept > Pricing"
-  embedding     VECTOR(1536),
-  tsv           TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', text)) STORED,
-  structured    JSONB,                          -- row payload for STRUCTURED sources
-  metadata      JSONB NOT NULL DEFAULT '{}',    -- source_url, page_title, filename…
-  UNIQUE (version_id, chunk_index)
+CREATE TABLE assistable_connections (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  api_key_ct TEXT NOT NULL,            -- AES-256-GCM envelope, never plaintext
+  status TEXT NOT NULL DEFAULT 'unverified', updated_at TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX kb_chunk_tenant ON kb_chunk (sub_account_id, kb_id);
-CREATE INDEX kb_chunk_tsv    ON kb_chunk USING GIN (tsv);
-CREATE INDEX kb_chunk_vec    ON kb_chunk USING hnsw (embedding vector_cosine_ops)
-  WITH (m = 16, ef_construction = 64);
-
--- Tags/categories: tenant-defined, attach to sources; filterable at query time.
-CREATE TABLE kb_tag (
-  id TEXT PRIMARY KEY, sub_account_id TEXT NOT NULL,
-  name TEXT NOT NULL, UNIQUE (sub_account_id, name)
+CREATE TABLE kbs (                      -- a customer groups sources into KBs
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE TABLE kb_source_tag (
-  source_id TEXT NOT NULL, tag_id TEXT NOT NULL REFERENCES kb_tag(id) ON DELETE CASCADE,
-  PRIMARY KEY (source_id, tag_id)
-);
-
--- Sync scheduling + connector config (encrypted), per source.
-CREATE TABLE kb_sync_config (
-  source_id     TEXT PRIMARY KEY,
-  connector     TEXT NOT NULL,     -- 'url','file','faq','text','website','feed','database','push'
-  config_ct     TEXT NOT NULL,     -- AES-256-GCM envelope (creds live here, never plaintext)
-  schedule_min  INTEGER,           -- null = push/manual only
-  next_run_at   TIMESTAMPTZ,
-  consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  webhook_secret TEXT              -- for push-source HMAC validation
-);
-
--- Every retrieval, for observability + quality metrics (§16). 30-day retention.
-CREATE TABLE kb_query_log (
-  id BIGSERIAL PRIMARY KEY,
-  sub_account_id TEXT NOT NULL, kb_ids TEXT[] NOT NULL,
-  assistant_id TEXT, channel TEXT,               -- chat|voice|widget|api
-  query TEXT NOT NULL, filters JSONB,
-  top_score REAL, result_count INTEGER, answerable BOOLEAN,
-  latency_ms INTEGER, cache_hit BOOLEAN,
+CREATE TABLE sources (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL, kb_id UUID NOT NULL REFERENCES kbs(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('file','url','website','faq','text','feed','csv','database','push')),
+  name TEXT NOT NULL,
+  config_ct TEXT NOT NULL,             -- encrypted connector config (creds live here)
+  schedule_minutes INT,                 -- null = push/manual
+  secret TEXT NOT NULL,                 -- per-source webhook auth (tool header)
+  push_hmac_secret TEXT,                -- for inbound push signatures
+  status TEXT NOT NULL DEFAULT 'never_synced'
+    CHECK (status IN ('never_synced','syncing','active','stale','error')),
+  active_version_id UUID, prev_version_id UUID,
+  column_meta JSONB NOT NULL DEFAULT '[]',
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  next_run_at TIMESTAMPTZ, last_sync_at TIMESTAMPTZ,
+  consecutive_failures INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX kb_query_log_tenant ON kb_query_log (sub_account_id, created_at DESC);
+CREATE TABLE source_versions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id UUID NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  version_num INT NOT NULL, content_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'building'
+    CHECK (status IN ('building','active','superseded','failed','rolled_back')),
+  item_count INT, error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), activated_at TIMESTAMPTZ,
+  UNIQUE (source_id, version_num)
+);
+CREATE TABLE chunks (
+  id TEXT PRIMARY KEY,                  -- DETERMINISTIC: {version_id}_{idx} (idempotent re-runs)
+  version_id UUID NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL, kb_id UUID NOT NULL, source_id UUID NOT NULL,
+  chunk_index INT NOT NULL,
+  text TEXT NOT NULL, heading_path TEXT,
+  embedding VECTOR(1536),
+  tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', text)) STORED,
+  structured JSONB,                     -- row payload for structured sources
+  metadata JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (version_id, chunk_index)
+);
+CREATE INDEX chunks_tenant ON chunks (tenant_id, kb_id);
+CREATE INDEX chunks_tsv ON chunks USING GIN (tsv);
+CREATE INDEX chunks_vec ON chunks USING hnsw (embedding vector_cosine_ops);
+CREATE TABLE trained_answers (          -- curated Q→A that short-circuit retrieval
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL, kb_id UUID NOT NULL,
+  query TEXT NOT NULL, answer TEXT NOT NULL,
+  embedding VECTOR(1536), is_active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE tools (
+  source_or_kb_id UUID PRIMARY KEY,     -- one row per provisioned tool (source-typed or kb-unified)
+  tenant_id UUID NOT NULL,
+  assistable_tool_id TEXT, assistant_ids TEXT[] NOT NULL DEFAULT '{}',
+  kind TEXT NOT NULL CHECK (kind IN ('structured','semantic')),
+  last_error TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE sync_runs (
+  id UUID PRIMARY KEY, source_id UUID NOT NULL, version_id UUID,
+  started_at TIMESTAMPTZ NOT NULL, heartbeat_at TIMESTAMPTZ, finished_at TIMESTAMPTZ,
+  status TEXT NOT NULL CHECK (status IN ('running','success','failed','rolled_back')),
+  items_count INT, error TEXT, manual BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE query_log (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL, source_id UUID, kb_id UUID,
+  channel TEXT,                         -- inferred from headers: direction/to/from present → voice
+  args JSONB NOT NULL, top_score REAL, result_count INT,
+  answerable BOOLEAN, relaxations TEXT[], latency_ms INT, cache_hit BOOLEAN,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE audit_log (
+  id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+  tenant_id UUID, actor TEXT, event TEXT NOT NULL, detail JSONB
+);
 ```
 
-**Versioning invariants**
-- Exactly one `active` version per source (partial unique index on
-  `(source_id) WHERE status='active'`).
-- Retrieval joins through active versions only; a version flip is one UPDATE in
-  one transaction → refresh is atomic and rollback is `UPDATE … SET status`.
-- Chunk IDs are deterministic (`{versionId}_{idx}`) — re-processing a version is
-  idempotent, fixing today's duplicate-vector bug
-  (`knowledge-processor.service.ts:62`).
-- Superseded versions are GC'd after N=2 newer active generations (keep one for
-  rollback), by a daily worker.
+**Invariants:** one `active` version per source (partial unique index);
+retrieval reads only through `active_version_id`; version flip = one UPDATE in
+one transaction; rollback = reverse flip; superseded versions GC'd after 2
+newer generations. Deterministic chunk IDs make every pipeline stage re-runnable.
 
-**Permissions model (v1, deliberately simple)**
-- KB ↔ assistant assignment (exists today) controls which agents can retrieve.
-- API keys use existing v3 scopes (`knowledge:*`,
-  `be/.../middleware/require-scope.ts`).
-- Tags enable query-time filtering (`filters.tags`), not ACLs.
-- v2 (future): per-source visibility rules (e.g., internal-only sources excluded
-  from customer-facing agents) — the `kb_source_tag` join is the hook.
+**Versioning is the freshness story:** "the price changed" = new version built
+in the background, validated, flipped atomically. Callers never see a
+half-updated KB, and a bad feed can be rolled back in one click.
 
 ---
 
-## 5. Ingestion & connectors
+## 5. Ingestion & real-time sync
 
-One pipeline, many connectors. Every connector implements the same interface
-(this is the extensibility seam — §19):
+**Connector interface (the extensibility seam — §18):**
 
-```ts
-interface Connector {
-  name: string;                                   // 'website', 'feed', …
-  // Pull current content. Must be side-effect free and cancellable.
-  fetch(config: ConnectorConfig, ctx: FetchCtx): Promise<FetchResult>;
-}
-type FetchResult =
-  | { kind: "documents"; docs: Array<{ uri: string; title: string; mime: string; bytes: Buffer }> }
-  | { kind: "chunks"; chunks: Array<{ text: string; headingPath?: string; metadata?: object }> }
-  | { kind: "rows"; rows: Array<Record<string, unknown>> };   // structured
+```js
+// every connector: async fetch(config, ctx) -> one of
+// { kind:'documents', docs:[{uri,title,mime,bytes}] }   → parse → chunks
+// { kind:'chunks', chunks:[{text,headingPath,metadata}] } → direct
+// { kind:'rows', rows:[{...}] }                          → structured
 ```
 
-**v1 connectors**
+**v1 connectors:** `file` (PDF/DOCX/TXT/MD via unstructured-style parsing;
+**CSV/XLSX always routed to rows, never raw text**), `url`, `website` (same-
+origin BFS crawler, robots.txt, heading-path chunks), `faq`, `text`, `feed`
+(JSON/CSV/XML endpoints, nested-array discovery), `csv` upload, `database`
+(Postgres/Supabase read-only: SELECT-only template, ident validation,
+statement_timeout, row cap), `push` (they call us).
 
-| Connector | Input | Notes |
-|---|---|---|
-| `file` | PDF/DOCX/XLSX/TXT/MD upload | Existing Unstructured-API parse path (`v2/.../unstructured.service.ts`) retained; **CSV/XLSX routed to `rows`, never raw text** (fixes the tabular-chunking failure) |
-| `url` | Single page | Existing Firecrawl scrape (`v2/.../firecrawl.service.ts`) |
-| `website` | Site crawl | Same-origin BFS, robots.txt, page/depth caps, heading-path chunking — lift the KB Bridge crawler design |
-| `faq` | Q&A pairs | Existing; one chunk per pair (already structure-aware) |
-| `text` | Raw text | Existing |
-| `feed` | JSON/CSV/XML endpoint | → `rows`; KB Bridge feed connector design (nested-array discovery, flattening) |
-| `database` | Postgres/Supabase read-only | → `rows`; SELECT-only templated query, ident validation, statement_timeout, row cap (KB Bridge design) |
-| `push` | Customer POSTs content to us | The real-time path — §5.1 |
+**SSRF defense is mandatory** for `url`/`website`/`feed`: DNS-resolve-then-
+verify against private/link-local/metadata ranges, connect-time IP pinning
+(undici Agent custom lookup), re-validate every redirect hop, scheme/port
+allowlist, size + time caps. Customer-supplied URLs are hostile input in a
+multi-tenant product. (Reference implementation: KB Bridge `ssrf-guard`.)
 
-**SSRF discipline (mandatory for `url`/`website`/`feed`):** DNS-resolve-then-
-verify against private/link-local/metadata ranges, re-validate every redirect
-hop, connect-time IP pinning, response size/time caps. The KB Bridge
-`ssrf-guard` module is the reference implementation; port it into
-`packages/api/src/lib/`. Customer-supplied URLs are hostile input in a
-multi-tenant system.
+**Type-aware chunking:** prose → heading-boundary splits, 800-1200 chars, 15%
+overlap, `heading_path` prepended; FAQ → one chunk per pair; tabular → **one
+chunk per row**, `structured` JSONB + a synthesized text line ("2022 Toyota
+Tacoma SR5, $28,500, 31k miles, silver") for hybrid matching; column type
+inference (numeric / categorical ≤25 distincts / text) persisted as
+`column_meta` — this powers filters and tool-schema generation.
 
-**Normalization:** documents → markdown-ish text with heading structure
-preserved; rows → typed values via numeric-like parsing (`"$24,995"` → 24995)
-and per-column type inference (numeric / categorical ≤25 distincts / text),
-stored as `column_meta` on the version. This powers structured search (§7) and
-tool-schema generation for live-data tools.
+**Real-time triggers:**
+1. **Push API:** `POST /api/v1/sources/:id/content` (full replace) or
+   `POST /api/v1/sources/:id/refresh` (re-pull now). Auth: tenant API key +
+   optional HMAC `X-LiveKB-Signature: sha256=…` (constant-time). This is
+   "a car sold → gone from answers in under a minute."
+2. **Schedules:** BullMQ repeatable sweep every 30s enqueues due sources
+   (`next_run_at`, ±10% jitter).
+3. **Manual:** portal "Sync now" (+ `force` to bypass the shrink gate).
 
-**Chunking (type-aware — replaces one-size-fits-all 1000/200):**
+**Change detection:** `content_hash` over normalized content BEFORE any
+embedding; unchanged → cheap no-op sync, freshness timestamp bumped. Makes
+15-minute schedules affordable.
 
-| Content | Strategy |
-|---|---|
-| Prose docs / pages | Split on heading boundaries, target 800-1200 chars, 15% overlap, prepend `heading_path` to text |
-| FAQ | One chunk per Q&A (as today) |
-| Tabular | **No chunking.** One `kb_chunk` per row with `structured` JSONB + a synthesized text line ("2022 Toyota Tacoma SR5, $28,500, 31k miles, silver") for hybrid matching |
-| Slides/sheets | Per-slide / per-sheet-region via Unstructured elements |
+**Validation gate + atomic swap** (proven in the KB Bridge design): build fully
+→ gate (`item_count ≥ 1`; shrink guard: new < 30% of old fails without `force`;
+coercion-failure rate ≤ 20%) → single-transaction flip → old version retained
+for rollback. A failed sync **never** damages what agents are currently serving.
 
-### 5.1 Real-time synchronization
-
-Three triggers, one pipeline:
-
-1. **Push API (≤60s freshness):** `POST /v3/kb/:kbId/sources/:sourceId/content`
-   with the new content (or `POST …/refresh` to make us re-pull now).
-   Authenticated by API key + optional per-source HMAC (`webhook_secret`,
-   `X-KB-Signature: sha256=…` over raw body, constant-time compare). This is
-   what "inventory system calls us when a car sells" looks like.
-2. **Schedules (pull):** `kb_sync_config.next_run_at`; BullMQ repeatable sweep
-   every 30s enqueues due sources. Per-source jitter ±10% to avoid thundering
-   herds at midnight.
-3. **Manual:** UI "Sync now" and v3 `…/refresh`.
-
-**Change detection:** compute `content_hash` over normalized content BEFORE
-embedding. If it equals the active version's hash → record a no-op sync (cheap,
-no embedding spend), bump freshness timestamp. This makes aggressive schedules
-affordable.
-
-**Atomic swap with validation gate** (lifted from KB Bridge, proven pattern):
-build the new version fully (`status='building'`), then gate before activation:
-- `item_count ≥ 1`;
-- shrink guard: if previous active count > 0 and new < 30% of it → **fail the
-  sync, keep serving the old version**, surface "suspicious shrink — use force
-  to override" in UI/API;
-- type-coercion failure rate ≤ 20% for structured sources.
-Activation = one transaction: old `active` → `superseded`, new → `active`.
-Rollback is the reverse flip, exposed in UI and API.
-
-**Fixing the v3 PENDING bug is part of this milestone:** the v3 source-create
-routes (`be/.../routes/v3/knowledge.ts:281-379`) enqueue the ingestion job
-directly (same BullMQ queue) instead of writing dead `PENDING` rows. The v2
-UI paths switch from QStash-triggered one-shot workflows to the same queue so
-there is exactly one pipeline. (BullMQ jobId rule applies: `kb-ingest-{sourceId}-{versionNum}` —
-dashes, never colons; see BE CLAUDE.md incident list.)
+**Failure ladder:** transient (network/429/5xx) → backoff 1m/5m/15m; permanent
+(parse/SSRF/auth) → `error`, no auto-retry; 3 consecutive failures → `stale`
+(still serving last good version) + email/webhook to the customer + banner in
+portal. Crash recovery: heartbeated `sync_runs`; on boot, running-with-stale-
+heartbeat → `failed`.
 
 ---
 
 ## 6. Indexing pipeline (workers)
 
-BullMQ queues (all in BE, Redis-backed, following existing worker conventions):
-
 ```
-kb-ingest    concurrency 4/replica   fetch → normalize → chunk → hash-gate
-kb-embed     concurrency 2/replica   batch-embed (≤128 chunks/call) → write kb_chunk
-kb-activate  concurrency 8           validation gate → version flip → cache bust
-kb-gc        daily                   superseded-version cleanup, query-log retention
+queue kb-ingest   (worker, conc 4)  fetch → normalize → chunk → hash gate
+queue kb-embed    (worker, conc 2)  batch embed (≤128/call) → write chunks
+queue kb-activate (worker, conc 8)  gate → version flip → cache bust → notify
+queue kb-gc       (daily)           superseded versions, query_log retention (90d)
 ```
 
-- **Idempotency:** deterministic chunk IDs + `ON CONFLICT DO UPDATE`; re-running
-  any stage is safe. Job dedupe via deterministic jobIds.
-- **Retries:** transient (network, 429, 5xx) → exponential backoff with jitter,
-  5 attempts; permanent (parse failure, SSRF block, auth) → version `failed`,
-  no retry, `consecutive_failures++`. 3 consecutive failures → source flagged
-  `stale` in UI + webhook event `kb.source.stale` (tenant can subscribe via the
-  existing outbound-webhook system).
-- **Embeddings:** `text-embedding-3-small` (1536-d — matches the existing column
-  and index; no migration). Platform key with OpenRouter fallback, as the
-  existing `generateEmbeddings` does (`be/.../services/openai.ts:100-131`).
-  Batch, and cache embedding calls on `sha256(text)` in Redis (30d TTL) —
-  re-syncs of mostly-unchanged content cost near zero.
-- **Crash recovery:** BullMQ stalled-job handling + a startup sweep marking
-  `building` versions with no live job as `failed` (KB Bridge heartbeat pattern).
+- Embedding cost controls: Redis cache keyed `sha256(text)` (30d TTL) — re-syncs
+  of mostly-unchanged content re-embed almost nothing; per-tenant daily embed
+  budget by plan (§19) with a clear "budget exhausted, sync paused" state.
+- Idempotency: deterministic chunk IDs + `ON CONFLICT DO UPDATE`; deterministic
+  jobIds `kb-ingest-{sourceId}-{versionNum}`.
+- Every stage writes progress to `sync_runs`; the portal shows a live pipeline
+  view per sync.
 
 ---
 
 ## 7. Retrieval engine
 
-Two engines behind one API, dispatched by source type; results merged.
+Two engines, one webhook, dispatched by source/tool kind.
 
-### 7.1 Hybrid retrieval (unstructured content)
+### 7.1 Structured (feeds, CSV, DB, tabular files) — the accuracy headline
 
-Promote the playground pipeline (`v2/.../rag-chat.service.ts`) to a production
-service in BE, with these stages:
+- Typed filters from tool args (`price_max`, `year_min`, categorical equality)
+  → JSONB predicates with **bound** paths (column names are tenant data — never
+  interpolated into SQL).
+- Categorical resolution: exact → case-insensitive → alias table (seeded:
+  chevy→chevrolet, vw→volkswagen…; tenant-extendable) → edit-distance ≤ 2.
+- Tiered relaxation on zero hits: widen numerics ±15% → drop least-selective
+  filter → lexical fallback — always returning `close_alternatives` labeled as
+  such with what differs. **Never a bare empty result**: "no 2022 Tacoma under
+  $30k, but a 2021 at $26,900" is the money answer on a live call.
 
-1. **Query understanding (cheap, deterministic):** lowercase/trim; expand with
-   conversation context ONLY via the last-user-turn + resolved entities the
-   agent already has (no LLM rewrite on the voice path — latency).
-   Chat path MAY use the existing contextualization step (it's default-on in the
-   playground) when the message is < 4 tokens or pronoun-heavy.
-2. **Candidate generation (parallel, single SQL each):**
-   - Vector: pgvector HNSW cosine, topK 20, tenant+kb scoped.
-   - Lexical: `tsv @@ websearch_to_tsquery('english', $q)` ranked by `ts_rank_cd`,
-     topK 20.
-3. **Fusion:** Reciprocal Rank Fusion `score = Σ 1/(60 + rank_i)`; dedupe by
-   chunk id; keep top 12.
-4. **Rerank (chat only, optional flag):** keyword-overlap rerank as in the
-   playground (weight 0.3). No LLM reranker in v1 (latency + cost).
-5. **Floor & answerability:** normalized top score < **0.4** (the playground's
-   `MIN_SIMILARITY_SCORE`, now enforced in production) → `answerable: false`,
-   zero chunks returned. This single change is the biggest anti-hallucination
-   lever we have: today production injects the 3 least-bad chunks no matter what
-   (`agent-run.ts:979-989`).
-6. **Trained responses:** Query Training pairs become first-class: embedding
-   match ≥ 0.85 against the trained-query vectors short-circuits retrieval and
-   returns the curated response with `citation.kind='trained'`. (Today this
-   feature is dead in production — `rag-chat.service.ts:725` analysis.)
+### 7.2 Hybrid semantic (docs, websites, FAQs)
 
-### 7.2 Structured retrieval (tabular sources)
+1. Normalize query (no LLM rewriting on the hot path — latency).
+2. Parallel candidates: pgvector HNSW cosine topK 20 ‖ FTS
+   `websearch_to_tsquery` topK 20 — both tenant+kb scoped in SQL.
+3. Reciprocal Rank Fusion (`Σ 1/(60+rank)`), dedupe, top 12.
+4. Keyword-overlap rerank (weight 0.3) — no LLM reranker in v1.
+5. **Confidence floor 0.4** → below it, `answerable:false`, zero chunks. The
+   single biggest anti-hallucination lever; the static KB has no floor at all
+   (verified) — we make "I don't know" a first-class, correct answer.
+6. **Trained answers:** embedding match ≥ 0.85 against curated Q→A pairs
+   short-circuits retrieval (`citation.kind='trained'`) — CS's direct lever
+   when an agent must answer something exactly.
 
-The KB Bridge engine, in-platform:
-
-- Filters from typed params (`price_max`, `year_min`, categorical equality) run
-  as JSONB predicates over `kb_chunk.structured` with **bound** JSON paths;
-- categorical value resolution: exact → case-insensitive → alias table
-  (chevy→chevrolet…, tenant-extendable) → edit-distance ≤ 2;
-- tiered relaxation on zero hits: widen numeric ±15% → drop least-selective
-  filter → lexical fallback — returning `close_alternatives` labeled as such,
-  never a bare empty result;
-- per-tenant alias promotion from the unanswered-query log (§16).
-
-### 7.3 Result contract
+### 7.3 Response contract (what the agent receives — both channels)
 
 ```jsonc
 {
-  "answerable": true,
-  "results": [{
-    "text": "…chunk text…",
-    "score": 0.83,
-    "confidence": "high",            // high ≥0.72 · medium ≥0.55 · low ≥0.4 (calibrate in §16)
-    "citation": {
-      "kind": "source",              // source | trained | structured
-      "source_id": "ks_…", "source_name": "Pricing FAQ v3",
-      "title": "Refund policy", "url": "https://…", "heading_path": "Billing > Refunds",
-      "version": 7, "as_of": "2026-07-13T06:00:00Z"
-    },
-    "structured": { "price": 28500, "…": "…" }   // structured hits only
-  }],
-  "close_alternatives": [ /* structured relaxation results */ ],
-  "freshness": "fresh",              // fresh | stale (last sync older than 2× schedule)
-  "trace_id": "kbq_…"
+  "ok": true, "answerable": true,
+  "result_count": 2, "as_of": "2026-07-13T09:00:00Z", "data_freshness": "fresh",
+  "applied_filters": {"model": "Tacoma", "price_max": 30000},
+  "relaxations": [],
+  "items": [{"title": "2022 Toyota Tacoma", "price": 28500, "mileage": 31000, "color": "Silver", "vin": "VIN001",
+             "citation": {"source": "Riverside Inventory", "as_of": "2026-07-13T09:00:00Z"}}],
+  "close_alternatives": [],
+  "speech_hint": "Yes - we have a 2022 Tacoma in silver at $28,500 with 31,000 miles.",
+  "guidance": "Only state what this tool returns. If answerable is false, say you don't have that information."
 }
 ```
 
-Confidence bands and the 0.4 floor start as stated and are **recalibrated from
-the golden-set evals** (§16) before GA.
+Semantic results carry `citation: {source, title, heading_path, url?, version, as_of}`
+and confidence band (`high ≥0.72 / medium ≥0.55 / low ≥0.4`, recalibrated from
+evals — §15). Whole body ≤ ~1200 chars on voice (items dropped from 5 down to
+fit); citations inline in chunk text too (`"…text… [Pricing FAQ, updated Jul 13]"`)
+so provenance survives models that ignore JSON structure.
 
 ---
 
-## 8. Multi-tenancy
+## 8. Tool provisioning (how agents get connected)
 
-- Every retrieval SQL includes `sub_account_id = $1` from the resolved API
-  key/session — denormalized onto `kb_chunk` precisely so no join can widen the
-  scope. HNSW + B-tree composite scans keep this fast.
-- v3 auth reuses the existing key→subaccount resolution
-  (`require-scope.ts:85-93`); internal consumers (agent-run, Telnyx webhook)
-  pass the assistant's `subAccountId` explicitly.
-- **Postgres RLS as belt-and-suspenders** on `kb_chunk`/`kb_query_log`
-  (`USING (sub_account_id = current_setting('app.sub_account_id'))`), enabled
-  once the access layer sets the GUC per request. RLS is defense-in-depth; the
-  application scoping is the primary control and is what tests assert.
-- **Tenant-isolation test suite is a release gate:** for every retrieval/API
-  endpoint, a two-tenant fixture asserts tenant B can never read tenant A's
-  chunks, sources, logs, or tags — including via filters, tags, and trace ids.
-- Noisy-neighbor control: per-tenant retrieval rate limit (Redis token bucket,
-  default 20 req/s burst 60 — far above any real agent) and per-tenant ingest
-  concurrency cap of 2 jobs.
+Two tool kinds, both created via the customer's key from the portal:
+
+1. **Typed structured tool per structured source** — `search_<slug>` with
+   generated flat params: `query` + up to 6 filters (categorical enums in
+   descriptions, `_min`/`_max` numeric pairs, `""`/`0` sentinels — required-
+   forcing-safe, §1.5). Best accuracy for inventory/catalog.
+2. **Unified semantic tool per KB** — `knowledge_<slug>` with just `query`.
+   Stable forever → no voice re-save churn.
+
+Provisioning flow (portal): pick assistants (from `GET /v3/assistants`) →
+create tool (409 → suffix retry) → assign each → store ids. Schema drift on a
+structured source updates only the tool **description** (chat picks it up
+immediately; voice needs assistant re-save → banner in portal: "Re-save your
+assistant in Assistable to refresh voice"). PATCH sends complete headers+params
+(partial merge impossible — verified).
+
+**Static-KB coexistence (important operational reality):** if the assistant
+still has a static KB linked, voice gets Assistable's own `knowledge_base` tool
+with an "only source of truth" description (`telnyx-tool-translator.ts:632-662`)
+competing with ours. Onboarding guidance (enforced by a portal checklist):
+- For domains the Live KB owns (inventory, catalog, anything that changes):
+  unlink the static KB or remove those docs from it.
+- Our tool descriptions name the domain explicitly ("ALWAYS call before
+  answering any question about vehicle inventory…").
+- We give the customer a one-paragraph prompt snippet to paste into the
+  assistant instructions (§12) — copy button in the portal.
 
 ---
 
-## 9. Low-latency engineering (voice-first)
+## 9. Multi-tenancy & permissions
 
-Budget (voice, worst case allowed): Telnyx webhook timeout is **10s hard**
-(`telnyx-tool-translator.ts:627`) but a caller tolerates ~1s of silence — and
-there is **no filler audio**: `speakDuringExecution` is dead on the Telnyx path
-(verified), so silence is exactly what the caller hears.
+- Every query and every row is scoped by `tenant_id` — denormalized onto
+  `chunks` so no join can widen scope; Postgres **RLS enabled** on `chunks`,
+  `query_log`, `sources` (`USING (tenant_id = current_setting('app.tenant_id')::uuid)`)
+  as defense-in-depth; the app layer sets the GUC per request and remains the
+  primary, tested control.
+- Webhook auth: per-source 32-byte secret in the tool header, constant-time
+  compare, 404 on failure (not retried by the proxy — verified). Optionally
+  cross-check the `location_id` header against the tenant's connected
+  subaccount (defense-in-depth; header can be absent — never require it).
+- Portal auth: bcrypt(12), hashed session tokens, SameSite cookies, custom-
+  header CSRF, login rate limits + lockout; org/teammates in v2.
+- Tenant API keys (for push + management API): `lkb_live_…`, hashed at rest,
+  scoped (`ingest`, `manage`, `read`), revocable, shown once.
+- Tags on sources → query-time filtering; per-source ACLs later (§18).
+- **Tenant-isolation test suite is a release gate**: two-tenant fixtures assert
+  no endpoint — search, portal, analytics, logs — ever crosses tenants.
+- Noisy neighbors: per-source hot-path rate limit (60/min default, soft-fail
+  JSON, never 429 — §1.3); per-tenant ingest concurrency 2; per-tenant embed
+  budget.
 
-| Stage | Budget (p95) |
+---
+
+## 10. Low-latency engineering (voice-first)
+
+Caller tolerance is ~1s of silence, and there IS silence — `speakDuringExecution`
+is dead on the Telnyx path (verified). Budget:
+
+| Stage | p95 |
 |---|---|
-| TLS + routing (Traefik → Fastify) | 30ms |
-| Auth + tenant resolve (Redis-cached key lookup) | 10ms |
-| Query embedding (OpenAI) | 120ms — OR 0ms on cache hit |
-| Vector + FTS (parallel SQL) | 80ms |
+| Edge + routing (Render) | 40ms |
+| Auth (secret compare) + tenant resolve | 5ms |
+| Query embedding (semantic only) | 120ms — 0ms on cache hit |
+| SQL (vector ‖ FTS, or JSONB filters) | 60-90ms |
 | Fusion + response build | 10ms |
 | **Total** | **≤ 250-400ms** |
 
-Tactics, in priority order:
-1. **Redis query cache:** key `sha256(tenant|kbset|normalized_query|filters)`,
-   TTL 60s, busted on version activation (one `DEL` by kb prefix via key tags).
-   Voice callers ask the same 20 questions all day; expect >50% hit rate.
-2. **Embedding cache** (same Redis, 30d): identical query text never re-embeds.
-3. **Prepared statements + pgbouncer-style pooling** via the existing Neon
-   serverless adapter; retrieval uses the **read replica** (v2 already has
-   `@prisma/extension-read-replicas` wired — extend to BE).
-4. **Parallel candidate generation** (vector ‖ lexical, `Promise.all`).
-5. **Degraded ladder** under the 2.5s internal deadline: full hybrid → lexical-
-   only (no embedding call) → cached-any → `answerable:false` with explicit
-   `degraded:true`. **Always HTTP 200**: the tool proxy retries 5xx up to 4×
-   with the caller hanging (`be/.../lib/http.ts:37-100`) — an error body the
-   agent can voice beats a retry storm every time.
-6. **No cold paths at call time:** connectors, parsing, embedding of content all
-   happen at ingest. Retrieval touches only Postgres + Redis.
+Tactics: Redis query-result cache (60s TTL, key
+`sha256(tenant|source|normalized_args)`, busted on version flip — voice callers
+ask the same 20 questions all day, expect >50% hits); embedding cache (30d);
+prepared statements + pooled connections (pgbouncer/Neon pooler); structured
+path never embeds at all; degraded ladder under the 2.5s deadline: full →
+lexical-only (skip embedding) → cached-any → `answerable:false, degraded:true`.
+**Always HTTP 200** — a spoken "let me check another way" beats the proxy's
+15s×4 retry storm (§1.3) every time.
 
 ---
 
-## 10. Automatic ingestion coverage (source matrix)
+## 11. API design
 
-| Customer has… | Connector | Freshness |
-|---|---|---|
-| PDFs, Word, slides, sheets | `file` | On upload/re-upload; watch-folder later (§19) |
-| A website / help center | `website` | Daily default, configurable to 1h |
-| FAQs | `faq` | On edit |
-| Inventory/product feed (DMS, Shopify export, …) | `feed` | 15min-24h schedule |
-| A database/Supabase | `database` | Schedule |
-| An internal system that knows when things change | `push` | ≤ 60s |
-| A running e-commerce/CRM app | v2 connectors: Shopify/GHL webhook → `push` under the hood (§19) |
+### 11.1 Hot path (called by Assistable's proxy)
+`POST /api/tools/:sourceOrKbId/search` — the contract in §1 + §7.3. Auth:
+`x-bridge-secret`. Envelope-parsed (`body.args` when `meta_data|metadata|call`
+present, else body). Channel inferred from headers (`to`/`from` present → voice)
+for analytics only — behavior is identical.
 
-Everything lands in the same version → chunk → activate pipeline; source type
-decides chunking + which retrieval engine serves it.
-
----
-
-## 11. API design (agent + public)
-
-### 11.1 Retrieval (the hot path)
-
-`POST /v3/kb/query` (public, scope `knowledge:READ`) and an internal twin
-`POST /internal/kb/query` (service-to-service, no rate limit) used by agent-run,
-chat widget, and the Telnyx webhook shim.
-
-```jsonc
-// request
-{
-  "query": "do you have a 2022 tacoma under 30k",
-  "kb_ids": ["kb_a", "kb_b"],          // omit → all KBs linked to assistant_id
-  "assistant_id": "as_…",              // resolves kb set + tenant on internal path
-  "filters": { "tags": ["inventory"], "price_max": 30000, "model": "Tacoma" },
-  "top_k": 5,
-  "mode": "auto"                        // auto | semantic | structured
-}
-// response: §7.3 shape
+### 11.2 Management API (tenant API key)
 ```
-
-- **Multi-KB is native** — this kills today's one-KB-per-voice-agent limitation
-  (`telnyx-agent.ts:92-99`): the Telnyx agent's `knowledge_base` webhook is
-  repointed to a shim `GET /knowledge-base/retrieval/:assistantId` that calls
-  the internal query API across ALL linked KBs and returns the legacy
-  `{recommendations:[…]}` shape (with citations appended inline as
-  `"…text… [Pricing FAQ, updated Jul 13]"`), so existing agents improve without
-  re-provisioning. New-style agents get the full JSON contract.
-- Existing per-query voice billing ($0.01 via Redis session counter,
-  `routes/knowledge-base.ts:11-48`) is preserved in the shim.
-- **Timeout/retry contract with the tool proxy (verified, non-negotiable):**
-  answer < 2.5s; 200-always for handled errors; 404 only for auth failure
-  (4xx is not retried, 5xx/429 are — `lib/http.ts:96-100`).
-
-### 11.2 Management (public v3)
-
+POST /api/v1/kbs · GET /api/v1/kbs
+POST /api/v1/kbs/:id/sources            create source (connector+config)
+POST /api/v1/sources/:id/refresh        re-pull now
+POST /api/v1/sources/:id/content        push replace (HMAC optional)  ← real-time path
+GET  /api/v1/sources/:id/versions       list versions
+POST /api/v1/sources/:id/rollback       flip to previous version
+POST /api/v1/sources/:id/query          direct search (same engine, for testing/other consumers)
+GET  /api/v1/sources/:id/analytics      volume, answerable rate, unanswered top-N
+POST /api/v1/tools/provision            create+assign tools for chosen assistants
 ```
-POST   /v3/kb                          create KB
-POST   /v3/kb/:id/sources              create source (connector + config) — ENQUEUES INGESTION (bug fix)
-POST   /v3/kb/:id/sources/:sid/refresh force re-sync now
-POST   /v3/kb/:id/sources/:sid/content push content (real-time path, HMAC optional)
-GET    /v3/kb/:id/sources/:sid/versions        list versions + status
-POST   /v3/kb/:id/sources/:sid/rollback        flip to previous version
-GET    /v3/kb/:id/analytics            query volume, answerable rate, top unanswered
-POST   /v3/kb/:id/assign  /remove      assistant assignment (exists)
-```
+JSON envelope `{data, error, request_id}`; per-key rate limits; OpenAPI spec
+published; webhook events out (`sync.completed`, `sync.failed`, `source.stale`)
+with HMAC signatures.
 
-Envelope, scopes, and rate limiting follow the existing v3 conventions
-(`{data,error,request_id}`; 150 req/10s + 100k/day per workspace+subaccount —
-`rate-limit-config.service.ts:20-22`). Webhook events emitted through the
-existing outbound webhook system: `kb.sync.completed`, `kb.sync.failed`,
-`kb.source.stale` (idempotency keys use `-` separators — BullMQ jobId rule).
+### 11.3 Versioned + boring
+API is `/v1`; breaking changes = new version; the hot-path contract (§7.3) is
+append-only forever — agents in production depend on its shape.
 
 ---
 
 ## 12. Context optimization & anti-hallucination
 
-1. **Answerability floor** (§7.1.5) — no chunks below 0.4 ever reach the prompt.
-2. **Retrieval as a tool, framed with a no-fabrication guard**: the platform
-   already appends a NO_FABRICATION_GUARD to webhook tools
-   (`telnyx-tool-translator.ts:585-591`) and the proxy error contract instructs
-   "do NOT synthesize values" — the KB answer contract extends this: system
-   prompt for KB-enabled agents gains: *"Answers about {domain} MUST come from
-   the knowledge tool result. If answerable=false, say you don't have that
-   information and offer to take a message. Read speech_hint aloud when present."*
-3. **Citations in-band**: chunk text delivered with `[source, as_of]` suffix so
-   even models that ignore JSON structure carry provenance into answers.
-4. **Freshness honesty**: `freshness:"stale"` → agent phrase "as of our last
-   update". Deterministic, template-level — same doctrine as the platform's
-   date-resolution rule (never let the model compute dates; never let it guess
-   freshness).
-5. **Compact context**: top 5 chunks max, ≤ 1200 chars total on voice (the
-   verified static-KB behavior of dumping ~3KB unranked is strictly worse);
-   structured answers pre-summarized in `speech_hint` so the voice model reads
-   rather than reasons.
-6. **Query training as guardrails**: curated answers for known-critical
-   questions (pricing, refunds, compliance) short-circuit retrieval (§7.1.6) —
-   giving CS a direct lever when an agent answers something badly.
+1. Confidence floor + `answerable:false` (§7.2.5) — nothing weak ever reaches
+   the model.
+2. `guidance` field in every response instructs the model ("only state what
+   this tool returns…") — reinforced by the platform's own no-fabrication
+   guard appended to webhook tools (verified, `telnyx-tool-translator.ts:585-591`).
+3. **Prompt snippet** (portal copy-button, part of onboarding):
+   > "For ANY question about {domains}, ALWAYS call {tool names} first and
+   > answer only from the result. If the tool says answerable is false or
+   > returns nothing, say you don't have that information and offer to take a
+   > message. When a speech_hint is present, read it aloud. If data_freshness
+   > is 'stale', say the info is as of the last update."
+4. `speech_hint` pre-composes the voice answer (deterministic template) so the
+   voice model reads instead of reasons.
+5. Compact context: ≤5 items, ≤1200 chars, salient fields only; citations
+   inline.
+6. Freshness honesty: `data_freshness: stale` when last sync > 2× schedule —
+   the agent hedges honestly instead of asserting stale facts.
+7. Trained answers for must-be-exact questions (pricing policy, compliance).
 
 ---
 
 ## 13. Caching & scalability
 
-- **Capacity math (targets from §2):** 5M chunks × (1536×4B vector + text +
-  tsv) ≈ 60-80GB — comfortably one Neon instance; HNSW query cost is
-  logarithmic. 200 retrievals/s × ~3 SQL each = ~600 qps against the read
-  replica: fine. Embedding at ingest is the only meaningful external spend and
-  is hash-gated (§5) + cached (§6).
-- **Cache layers:** (1) query-result cache 60s; (2) embedding cache 30d;
-  (3) API-key→tenant resolution cache 60s (exists for rate-limit overrides —
-  same pattern); (4) assistant→kb-set cache 60s, busted on assignment change.
-- **Horizontal scale:** retrieval is stateless → scale BE replicas (already 5
-  behind Traefik); workers scale by BullMQ concurrency knobs; Redis and
-  Postgres are managed services with their own scaling paths (Upstash, Neon).
-- **Backpressure:** ingest queues bounded (10k jobs); over-limit push requests
-  get 429 with Retry-After (management API only — never the retrieval path).
+- Capacity: 5M chunks ≈ 40-70GB in Postgres incl. HNSW — one Neon instance;
+  200 tool calls/s ≈ ≤600 SQL/s on pooled connections — comfortable. Web tier
+  scales by instance count (stateless); workers by BullMQ concurrency.
+- Cache layers: query results (60s), embeddings (30d), tenant/source auth row
+  (60s), assistant lists (5min, portal only).
+- Backpressure: ingest queues bounded; management API 429s with Retry-After
+  (hot path never does — §1.3).
+- Postgres growth path: read replica for the hot path at >100 qps sustained;
+  partition `chunks` by tenant hash if >20M chunks (not before — YAGNI).
 
 ---
 
 ## 14. Reliability: failover, retries, backups, DR
 
-- **Backups:** Neon PITR (continuous WAL) — RPO ≤ 5min. Nightly logical dump of
-  KB tables to R2/S3 (30-day retention) as provider-independent insurance.
-  Redis is cache/queue only: losable; queues drain from Postgres state on
-  restart (every in-flight version is reconstructible from `kb_source_version`).
-- **Restore runbook (tested quarterly):** restore Neon branch to T, repoint
-  read replica, replay `building` versions. RTO target ≤ 30min.
-- **Failure modes & behavior:**
-  | Failure | Behavior |
+- **Backups:** Neon PITR (RPO ≤ 5min) + nightly logical dump to R2 (30d
+  retention); R2 also holds original uploaded files → full re-ingest is always
+  possible. Redis is losable (cache + queues reconstructible from Postgres
+  state). Restore runbook tested quarterly; RTO ≤ 30min.
+- **Failure behavior:**
+  | Failure | Hot-path behavior |
   |---|---|
-  | OpenAI embeddings down | Ingest pauses (retry/backoff); retrieval degrades to lexical-only automatically (§9.5) — **customers still get answers** |
-  | Redis down | Caches miss (slower, correct); BullMQ paused; scheduler catches up on recovery |
-  | Read replica down | Fall back to primary (feature flag) |
-  | Postgres down | Full outage of KB — surfaced via `/healthz` + status page; agents receive `answerable:false, degraded:true` from the 200-always contract, so calls don't hang |
-  | One BE replica dies | Traefik routes around it; BullMQ stalled jobs re-run |
-- **Single-EC2 risk (flagged):** the BE currently runs all replicas on ONE EC2
-  instance (BE CLAUDE.md). For "primary source of truth" status, that box is
-  the availability ceiling. Recommendation: second instance behind the same
-  Traefik or move retrieval routes to a second small host — decision for the
-  infra owner, called out here so it's explicit.
+  | OpenAI down | Semantic degrades to lexical-only automatically; structured unaffected; ingest pauses with backoff |
+  | Redis down | Cache misses (slower, correct); queues pause; scheduler catches up |
+  | One web instance down | Render load balancer routes around |
+  | Postgres down | Full outage → 200 `{ok:false, answerable:false, degraded:true}` from an in-process circuit breaker so calls never hang; status page + alert |
+- Retries: everything transient retried with jittered backoff at the queue
+  layer; the hot path NEVER retries outward (it has no outbound calls except
+  embeddings, which have the lexical fallback).
+- Deploys: rolling, health-checked; DB migrations expand-then-contract (never
+  break the running version).
 
 ---
 
-## 15. Security
+## 15. Monitoring, analytics, retrieval quality
 
-- **AuthN/AuthZ:** v3 API keys with scopes (existing); internal endpoints on the
-  private network path only; per-source HMAC for push ingestion; the Telnyx shim
-  keeps its session-header billing key.
-- **Encryption:** TLS everywhere (Traefik ACME, exists); connector credentials
-  AES-256-GCM at rest (key in env/SSM, key-id prefix for rotation — KB Bridge
-  envelope format); Neon encrypts at rest.
-- **Tenant isolation:** §8 (application scoping + RLS + release-gate tests).
-- **SSRF:** §5 guard on all fetching connectors — non-optional.
-- **Injection surfaces:** JSONB paths bound, never interpolated (column names
-  are tenant data); FTS queries via `websearch_to_tsquery` (safe parser);
-  ident-validation on the database connector.
-- **Secrets hygiene:** logger redaction on `key|secret|token|authorization|connection`
-  patterns (v2's logger already redacts — extend BE's); tool headers containing
-  secrets are readable via `GET /v3/tools/:id` today (verified) — document this
-  to customers and scope Live KB secrets out of tool headers entirely (retrieval
-  is internal; only KB Bridge-style external tools use header secrets).
-- **Audit log:** append-only `audit_log` for: KB/source CRUD, version rollbacks,
-  key changes, permission/assignment changes, admin overrides — with actor,
-  tenant, timestamp, detail JSON. Surfaced in the UI for the tenant, queryable
-  for support.
-- **Data deletion:** source delete → versions+chunks cascade; tenant offboarding
-  job purges chunks, logs, caches; embedding cache keys are content-addressed
-  (no tenant data in keys).
+- **Logs:** structured JSON, request-id + trace through pipeline stages;
+  secrets redacted by key-pattern; errors → GlitchTip.
+- **Metrics + alerts:** webhook p50/95/99 by kind; cache hit rates; sync
+  success/freshness lag per source; queue depth; embed spend/day/tenant;
+  alert on p95 > 500ms (5min), sync-failure spike, queue > 5k, freshness
+  lag > 2× schedule on any source with traffic.
+- **Per-tenant analytics (portal — this is also the product's proof of value):**
+  query volume by day/channel, answerable rate, top queries, **unanswered
+  queries** (0-result / below-floor) with one-click fixes: promote to trained
+  answer, add alias, or "add this to your data" hint. This is the accuracy
+  flywheel and the retention feature.
+- **Quality program:** golden question→source sets per vertical (dealership,
+  ecommerce, services) run nightly in CI against seeded tenants — recall@5 +
+  MRR regression fails the build; monthly sampled relevance labeling
+  recalibrates the confidence bands.
 
 ---
 
-## 16. Observability & retrieval quality
+## 16. Security summary
 
-**Logging:** structured JSON per retrieval with `trace_id`, tenant, channel,
-latency by stage, cache hits, top score, answerable — into the existing Axiom /
-GlitchTip stack (errors → GlitchTip project `backend`, per BE CLAUDE.md).
+Threats: cross-tenant leakage, SSRF via customer URLs, credential theft
+(Assistable keys, DB creds), webhook forgery, injection via tenant data.
 
-**Metrics (dashboards + alerts):**
-- Latency p50/p95/p99 by channel; error rate; cache hit rates.
-- Ingest: sync success rate, freshness lag per source, queue depth, embedding
-  spend/day.
-- Quality: answerable rate, zero-result rate, average top score, per-tenant
-  unanswered-query leaderboard.
-- Alerts: p95 > 500ms 5min; sync failure spike; queue depth > 5k; freshness lag
-  > 2× schedule for any source with traffic.
+Controls (all specified above, gathered): tenant scoping + RLS + release-gate
+isolation tests (§9) · SSRF guard with IP pinning (§5) · AES-256-GCM envelopes
+for Assistable keys + connector creds, key-id rotation, write-only UI (§4) ·
+per-source secrets, constant-time compare, 404-on-fail (§9) · HMAC on push +
+outbound webhooks (§5, §11) · bound JSONB paths, `websearch_to_tsquery`, ident
+validation (§7) · bcrypt/hashed sessions/CSRF/rate limits (§9) · TLS everywhere,
+helmet/CSP on portal · append-only `audit_log` (auth events, key changes,
+source/tool CRUD, rollbacks, admin actions) surfaced per-tenant · logger
+redaction · tenant offboarding purge job · dependency audit in CI.
 
-**Retrieval quality program (what makes accuracy improve over time):**
-1. **Golden set:** per major vertical (dealership, ecommerce, services), 50-100
-   question→expected-source pairs, run nightly in CI against a seeded tenant;
-   track recall@5 and MRR; regression fails the build.
-2. **Online signals:** `kb_query_log.answerable=false` clusters → weekly
-   "unanswered queries" digest per tenant (the accuracy flywheel: one click
-   promotes an unanswered query to a Query-Training pair or alias).
-3. **Confidence calibration:** sampled human-labeled (or LLM-judge, offline)
-   relevance on ~500 logged queries/month → adjust band thresholds.
-4. **Voice-quality tie-in:** join `kb_query_log` to call transcripts by
-   `call_control_id` to find calls where low-confidence answers correlate with
-   escalations.
+Known platform caveat we document to customers: tool headers (our per-source
+secret) are readable in their own Assistable account by any key with
+`tools:READ` (verified) — the secret only grants search on that one source and
+is rotatable in one click from the portal (rotation updates the tool header via
+PATCH; URL/header changes apply to voice immediately — verified §1.5).
 
 ---
 
-## 17. Rollout, testing, CI/CD
+## 17. Delivery plan: MVP → production
 
-**Environments & flags:** everything behind per-tenant feature flags:
-`livekb.retrieval` (new engine serves production queries), `livekb.dual_read`
-(shadow mode), per-connector flags.
+**Phase 0 — the KB Bridge MVP (already fully planned):** the 15-task TDD plan
+(`docs/superpowers/plans/2026-07-13-dynamic-kb-portal.md`) IS phase 0 —
+Express + SQLite, structured search, tool provisioning, the verified contract.
+Build it, onboard 2-3 design partners (a dealership, an ecommerce store),
+validate on real calls.
 
-**Phased rollout:**
-- **P0 — Foundations (weeks 1-3):** schema (+parity mirror), ingestion pipeline
-  + version model, fix v3 PENDING bug, deterministic chunk IDs, pgvector HNSW
-  index build, backfill job (re-index existing COMPLETE sources from
-  `knowledgeChunk` text — embeddings already in Postgres where present).
-- **P1 — Retrieval engine (weeks 3-6):** hybrid engine + floor + citations;
-  `internal/kb/query`; **dual-read shadow mode**: production chat queries run
-  BOTH old (Pinecone top-3) and new engines, log both, serve old. Compare
-  answerable/overlap/latency on real traffic for ≥1 week.
-- **P2 — Cutover (weeks 6-8):** flip `livekb.retrieval` for internal tenants →
-  design partners (a dealership + an ecommerce tenant) → all. Voice shim
-  repointed. Old Pinecone path kept warm behind an instant-rollback flag for
-  30 days, then decommissioned.
-- **P3 — Live data (weeks 8-12):** structured sources (feed/database/push),
-  filters in the query API, KB Bridge-pattern tool generation for structured
-  sources; analytics UI; connector SDK docs.
+**Phase 1 — production substrate (weeks 3-6):** swap the storage layer to
+Postgres behind the existing seams (`db.js`, search modules take a `db` handle;
+FTS5 → tsvector/pgvector is contained in `search/` + `db.js`), BullMQ workers,
+R2 for files, Render deploy (web + worker), GlitchTip wiring. Keep the
+SQLite path as the local-dev/test mode.
 
-**Testing pyramid:**
-- Unit: chunkers, inference, fusion math, gates, SSRF guard, HMAC.
-- Integration: pipeline end-to-end per connector against fixtures; version
-  swap/rollback; tenant-isolation suite (release gate, §8).
-- Retrieval evals: golden set in CI (nightly + pre-release).
-- Load: k6 at 3× target qps on a staging Neon branch; soak the voice shim at
-  p95 budget.
-- Chaos drills: kill Redis, kill replica, throttle OpenAI — assert degraded
-  ladder behavior (§9.5, §14).
+**Phase 2 — semantic KB (weeks 6-9):** embeddings + hybrid engine + confidence
+floor + citations + trained answers; `knowledge_<slug>` unified tools; docs/
+website/FAQ onboarding polished. Golden-set evals in CI.
 
-**CI/CD:** existing GitHub Actions on `main` (BE deploys via Docker rolling
-update — zero-downtime path already in place). Add: schema-parity check (exists,
-will trip on new models until mirrored), golden-set eval job, migration step
-gated by the Prisma safety rules (no `--accept-data-loss`, ever — both CLAUDE.mds).
+**Phase 3 — real-time + product (weeks 9-12):** push API + HMAC, webhook
+events, per-tenant analytics + unanswered-queries flywheel, plans/limits
+(+ Stripe if we charge — §19), onboarding checklist incl. static-KB
+coexistence, OpenAPI docs, status page.
 
-**Runbooks (docs/runbooks/ in BE):** stale-source triage; failed-sync triage;
-rollback a bad version; restore-from-backup; "agent quoting stale price" triage
-(trace_id → version → source diff); embedding-provider outage.
+**Testing throughout:** unit + integration per module (the MVP plan's TDD
+style), tenant-isolation gate, load test at 3× target (k6), chaos drills
+(kill Redis / throttle OpenAI / kill an instance — assert §14 behavior),
+one real-voice-call E2E per release ("2022 Tacoma under $30k" against a
+staging tenant, answer < 1s, correct price).
+
+**CI/CD:** GitHub Actions — lint, unit/integration, golden-set evals, migration
+dry-run, deploy on main to staging → manual promote to prod (Render), instant
+rollback = previous deploy + version-flip rollback for data.
 
 ---
 
-## 18. Developer experience
+## 18. Future extensibility
 
-- One `docker compose up` dev stack: Postgres (pgvector), Redis, MinIO, the BE
-  service, seeded demo tenant with a dealership CSV + crawled demo site.
-- `MOCK_EMBEDDINGS=1` mode (hash-based pseudo-vectors) so tests and local dev
-  never need API keys.
-- Connector SDK (§19) with a fixture-based test harness: `npx kb-connector test ./my-connector`.
-- The retrieval API is self-describing: `GET /v3/kb/query/schema` returns the
-  JSON schema + a copy-pasteable example per mode.
+- **Connector SDK:** the `fetch(config, ctx)` interface + zod config schema +
+  fixture harness; new connectors (Google Drive, Notion, Zendesk, Shopify,
+  GHL custom objects) are additive modules; registry-driven portal UI.
+- **Push adapters:** Shopify/GHL/DMS webhook translators (~100 lines each) onto
+  the push seam.
+- **Per-source ACLs / teammate roles** on existing tags + tenants tables.
+- **LLM reranker, HyDE, multilingual FTS + embeddings** — flags on the semantic
+  engine, chat-only budgets.
+- **Beyond Assistable:** the hot path is a clean tool/function-calling API —
+  the same product serves Vapi/Retell/OpenAI-tools customers later with only a
+  new provisioning adapter per platform (the retrieval engine is
+  platform-agnostic by construction).
 
----
+## 19. Plans & cost guardrails (operational, not billing advice)
 
-## 19. Future extensibility
-
-- **Connector SDK:** the `Connector` interface (§5) + manifest
-  (`{name, configSchema (zod), schedules, docs}`) — new connectors (Google
-  Drive, Notion, Zendesk, Shopify, GHL custom objects) are additive modules;
-  registry-driven UI so the portal picks them up without UI changes.
-- **Push-webhook adapters:** thin translators (Shopify product-update webhook →
-  `push` content) — each ~100 lines on the existing seam.
-- **Per-source visibility ACLs** on the `kb_source_tag` hook (§4).
-- **LLM reranker + HyDE** as opt-in retrieval flags (already scaffolded in the
-  playground pipeline; latency-budgeted for chat only).
-- **Cross-lingual:** swap `to_tsvector('english')` for per-KB language config +
-  multilingual embedding model — isolated to two functions by design.
-- **KB Bridge (external portal)** remains the fast path for prospects not yet on
-  the platform and the reference implementation for structured search; once P3
-  lands, its connectors map 1:1 onto platform source types.
+Free: 1 KB, 3 sources, daily sync, 500 queries/mo, lexical-only semantic.
+Pro: hourly sync, push API, semantic retrieval, 10k queries/mo. Scale: custom.
+Enforcement points already in the design: per-tenant embed budget (§6), sync
+frequency floor, hot-path soft rate limit (§9), query_log as the metering source.
 
 ---
 
-## Appendix A — Decisions & rationale (quick reference)
+## Appendix — Decision log
 
 | Decision | Why |
 |---|---|
-| Postgres/pgvector as system of record (Pinecone retired post-migration) | Column+index already exist; one store = atomic versioning, one DR story, tenant scoping in SQL; namespace-fan-out queries (1+N per message today) disappear |
-| Version-flip freshness, not in-place updates | Atomic, instantly rollbackable, idempotent, cheap to reason about — proven in KB Bridge |
-| Hybrid RRF over pure vector | Verified failure of pure cosine on numeric/exact queries; lexical leg also gives the embedding-outage degraded mode |
-| Structured rows as first-class (no chunking) | The single biggest accuracy win for dealership/ecommerce; verified CSV-as-text failure |
-| 0.4 floor + answerable flag | Biggest anti-hallucination lever; already validated in the playground |
-| 200-always + 2.5s deadline on retrieval | Verified proxy retry amplification (15s×4 vs Telnyx 10s) — 5xx makes callers hang |
-| Fix v3 PENDING in P0 | The public API currently produces dead sources; Live KB credibility requires the API to work |
-| Feature-flag dual-read cutover | Retrieval quality changes are risky; shadow mode gives real-traffic evidence before any customer feels it |
-
-## Appendix B — Verified source citations (baseline claims)
-
-- Chat RAG path: `be/packages/api/src/services/agent-run.ts:937-999, 1152-1157`
-- Voice KB webhook + billing: `be/packages/api/src/routes/knowledge-base.ts:11-144`
-- One-KB-per-voice-agent: `be/packages/api/src/services/telnyx-agent.ts:92-99, 755-783`
-- Tool proxy contract/timeouts: `be/packages/api/src/services/tool-proxy.service.ts:415-618`, `be/packages/api/src/lib/http.ts:37-100`, `be/packages/api/src/services/telnyx-tool-translator.ts:593-627`
-- Playground hybrid pipeline: `v2/src/server/services/knowledge/rag-chat.service.ts:66-117, 725, 1026`
-- Chunking / CSV-as-text: `v2/src/server/services/knowledge/chunking.service.ts:17-18`, `v2/src/server/services/knowledge/unstructured.service.ts:106`
-- Freshness/duplication bugs: `v2/src/server/services/knowledge/knowledge-processor.service.ts:62, 104, 341-369`
-- v3 PENDING bug: `be/packages/api/src/routes/v3/knowledge.ts:282-284`; no sweeper in either repo (verified by search)
-- v3 scopes/rate limits: `be/packages/api/src/middleware/require-scope.ts:71-93`, `be/packages/api/src/services/rate-limit-config.service.ts:20-22`
+| Standalone product; tools are the ONLY integration | We can't code Assistable's backend; the tool surface is public, verified, and works on both channels automatically |
+| Express + Postgres/pgvector + Redis + Render | Team's proven stack (KB Bridge, attribution-bridge); pgvector+FTS in one store = one consistency + DR story |
+| Version-flip freshness | Atomic, rollbackable, idempotent — proven pattern; "live" must never mean "half-updated" |
+| Structured rows first-class, hybrid for prose | Verified static-KB failures: CSV-as-text + no floor; filters beat cosine for facts, RRF beats either alone for prose |
+| 200-always, ≤400ms p95, 2.5s deadline | Verified proxy retry amplification (15s×4) vs Telnyx 10s + silent caller |
+| Flat forced-required-safe tool schemas, stable | Verified: all top-level params forced required; voice bakes schema at assistant-save |
+| Confidence floor + answerable:false | The anti-hallucination lever the static KB lacks entirely |
+| MVP (SQLite plan) first, Postgres in Phase 1 | Validate with real dealers in weeks, not months; storage seam is contained |
