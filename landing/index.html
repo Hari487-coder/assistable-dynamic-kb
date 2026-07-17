@@ -4,73 +4,111 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Live KB — give your Assistable agents live data</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
-:root{color-scheme:light}
-body{font:16px/1.6 system-ui;margin:0;color:#101828;background:#fff}
-.wrap{max-width:760px;margin:0 auto;padding:3rem 1.25rem}
-h1{font-size:2rem;line-height:1.2;margin:0 0 .5rem}
-.sub{color:#475467;font-size:1.05rem;margin-bottom:2.5rem}
-.step{display:flex;gap:1rem;margin:1.5rem 0;padding:1.25rem;border:1px solid #e4e7ec;border-radius:12px}
-.num{flex:none;width:2rem;height:2rem;border-radius:50%;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
-.step h2{font-size:1.1rem;margin:.1rem 0 .4rem}
-.step p{margin:.25rem 0;color:#475467}
-.btn{display:inline-block;margin-top:.6rem;padding:.6rem 1.1rem;border-radius:8px;background:#7c3aed;color:#fff;text-decoration:none;font-weight:600}
-.btn.alt{background:#f4f1fd;color:#5b21b6}
-.note{background:#fffaeb;border:1px solid #fedf89;border-radius:8px;padding:.75rem 1rem;margin:2rem 0;color:#7a5300;font-size:.95rem}
-.faq{margin-top:3rem;border-top:1px solid #e4e7ec;padding-top:1.5rem}
-.faq h3{font-size:1rem;margin:1rem 0 .25rem}
-.faq p{color:#475467;margin:.25rem 0}
-code{background:#f2f4f7;padding:.1rem .35rem;border-radius:4px}
+/* Daybreak — ported from the mortgage platform design system */
+:root{color-scheme:light;
+--page-bg:#f6f6fb;--surface:#fff;--surface-sunken:#f0f0f7;--border:#eae9f3;--border-strong:#dbdaec;
+--text-primary:#191823;--text-secondary:#55536e;--text-muted:#737190;
+--ink:#191823;--ink-hover:#2b2a3b;--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
+--good:#0c7d55;--good-tint:#e7f7f0;--good-tint-border:#c2e7d7;
+--warning:#a95f0b;--warning-tint:#fdf3e4;--warning-tint-border:#f2dcb6;
+--radius-md:14px;--radius-lg:18px;--radius-xl:24px;--radius-pill:999px;
+--shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
+--shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
+--font-display:"Bricolage Grotesque",system-ui,sans-serif;
+--hero-sky:radial-gradient(64rem 30rem at 50% -8rem,rgba(255,186,145,.5),transparent 62%),
+linear-gradient(180deg,#fff7f1 0%,#f4efff 30%,#e5ddff 55%,#cfc2ff 80%,#f6f6fb 100%)}
+*{box-sizing:border-box}
+body{font:16px/1.6 Inter,system-ui,sans-serif;margin:0;color:var(--text-primary);background:var(--page-bg)}
+.hero{background:var(--hero-sky);padding:4.5rem 1.25rem 5rem;text-align:center}
+.hero .badge{display:inline-block;background:rgba(255,255,255,.7);border:1px solid var(--accent-tint-border);
+color:var(--accent-strong);font-weight:600;font-size:.85rem;padding:.3rem .9rem;border-radius:var(--radius-pill);margin-bottom:1.25rem}
+h1{font-family:var(--font-display);font-weight:700;font-size:clamp(2.1rem,5vw,3.1rem);line-height:1.12;margin:0 auto .8rem;max-width:17ch}
+.sub{color:var(--text-secondary);font-size:1.12rem;max-width:44ch;margin:0 auto 2rem}
+.cta{display:inline-block;padding:.85rem 1.6rem;border-radius:var(--radius-pill);background:var(--ink);
+color:#fff;text-decoration:none;font-weight:600;box-shadow:var(--shadow-md)}
+.cta:hover{background:var(--ink-hover)}
+.cta.alt{background:rgba(255,255,255,.75);color:var(--accent-strong);border:1px solid var(--accent-tint-border);box-shadow:none;margin-left:.5rem}
+.wrap{max-width:780px;margin:-2.5rem auto 0;padding:0 1.25rem 4rem}
+.step{display:flex;gap:1.1rem;margin:1.1rem 0;padding:1.4rem;border:1px solid var(--border);
+border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm)}
+.num{flex:none;width:2.1rem;height:2.1rem;border-radius:50%;background:var(--accent-tint);
+border:1px solid var(--accent-tint-border);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;
+font-weight:700;font-family:var(--font-display)}
+.step h2{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:.1rem 0 .4rem}
+.step p{margin:.25rem 0;color:var(--text-secondary)}
+.note{background:var(--warning-tint);border:1px solid var(--warning-tint-border);border-radius:var(--radius-md);
+padding:.85rem 1.1rem;margin:2rem 0;color:var(--warning);font-size:.95rem}
+.proof{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:2.25rem}
+.proof span{background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:var(--radius-pill);
+padding:.35rem 1rem;font-size:.88rem;color:var(--text-secondary);font-weight:500}
+.proof b{font-family:"JetBrains Mono",monospace;color:var(--good);font-weight:500}
+.faq{margin-top:3rem;border-top:1px solid var(--border);padding-top:1.5rem}
+.faq h3{font-family:var(--font-display);font-size:1.02rem;margin:1.1rem 0 .25rem}
+.faq p{color:var(--text-secondary);margin:.25rem 0}
+code{font-family:"JetBrains Mono",monospace;background:var(--surface-sunken);padding:.1rem .4rem;border-radius:6px;font-size:.88em}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="hero">
+<span class="badge">Free · self-hosted · voice + chat</span>
 <h1>Your AI agent, with live data.</h1>
-<p class="sub">Live KB is a knowledge base you own, that your Assistable voice and
-chat agents query in real time — inventory, products, prices, availability.
-Free to run. Three clicks to set up. Your data never touches anyone else's server.</p>
+<p class="sub">Live KB is a knowledge base you own, that your Assistable agents query
+in real time — inventory, products, prices, availability. Answers in
+milliseconds, on phone calls and in chat.</p>
+<a class="cta" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy my Live KB — free</a>
+<a class="cta alt" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">View on GitHub</a>
+<div class="proof">
+<span>Lookups in <b>~30-60ms</b></span>
+<span>Real filters: <b>price ≤ $30k</b>, not vector guesses</span>
+<span>Never says nothing — offers closest matches</span>
+</div>
+</div>
 
+<div class="wrap">
 <div class="step"><div class="num">1</div><div>
-<h2>Create a free Render account &amp; deploy your Live KB</h2>
-<p>One click below. Sign in with Google or GitHub — Render hosts your personal
-instance for free and gives it a secure HTTPS address. Nothing to configure.</p>
-<a class="btn" href="https://render.com/deploy?repo=REPLACE_WITH_PUBLIC_REPO_URL">Deploy my Live KB — free</a>
-<a class="btn alt" href="../docs/SELF-HOSTING.md">Other options (Docker / always-free VM)</a>
+<h2>Create a free Render account &amp; deploy</h2>
+<p>One click. Sign in with Google or GitHub — Render hosts your personal
+instance for free with a secure HTTPS address. Nothing to configure: the
+encryption key generates itself, the URL is auto-detected.</p>
 </div></div>
 
 <div class="step"><div class="num">2</div><div>
 <h2>Open your new Live KB and create your account</h2>
 <p>When Render finishes (~2 minutes), open your instance's URL. The first
-account created becomes the owner and sign-ups close automatically — it's
-yours alone.</p>
+account becomes the owner and sign-ups close automatically — it's yours alone,
+and so is the data: everything lives in one file on your instance.</p>
 </div></div>
 
 <div class="step"><div class="num">3</div><div>
 <h2>Follow the in-app setup</h2>
-<p>The setup page walks you through the rest: paste your Assistable API key,
-add your data (CSV, feed, website, or database), tick which assistants get the
-tool — it's created in your Assistable account automatically — then paste one
-paragraph into your assistant's prompt and test it live on the same page.</p>
+<p>Paste your Assistable API key (it needs only <code>assistants:list</code>,
+<code>tools:create</code>, <code>tools:update</code> — nothing else), add your
+data (CSV, feed, website, or database), tick your assistants — the tool is
+created in your Assistable account automatically. Paste one paragraph into
+your assistant's prompt, test it live on the same page, done.</p>
 </div></div>
 
 <p class="note"><b>Free-tier note:</b> Render's free plan sleeps after 15 idle
 minutes and its disk resets on redeploys — great for trying it out. For real
-customer traffic, the <i>always-free VM</i> option (one command, permanent
-disk) is the recommended $0 production home.</p>
+customer traffic, the always-free VM path (one command, permanent disk) in the
+self-hosting guide is the recommended $0 production home.</p>
 
 <div class="faq">
 <h3>What accounts do I need?</h3>
-<p>Just two: Render (free, hosts your instance) and your existing Assistable
+<p>Two: Render (free, hosts your instance) and your existing Assistable
 account (for the API key). The VM option swaps Render for Oracle Cloud.</p>
 <h3>Does it work on phone calls?</h3>
-<p>Yes — the same tool serves voice and chat automatically. Answers come back
-in well under a second with a ready-to-speak summary.</p>
+<p>Yes — the same tool serves voice and chat automatically, and every answer
+includes a ready-to-speak summary the voice agent reads aloud.</p>
 <h3>What data can I connect?</h3>
 <p>CSV uploads, feed URLs (JSON/CSV/XML — every DMS and store platform can
 export one), whole websites, and read-only Postgres/Supabase.</p>
 <h3>What does it cost?</h3>
-<p>Nothing. No paid APIs, no paid database, free hosting tiers. The design
-goal was $0 to run — which also made it fast: lookups are ~30-60ms.</p>
+<p>Nothing. No paid APIs, no paid database, free hosting tiers. The zero-cost
+design is also why it's fast — a lookup never leaves your instance.</p>
 </div>
 </div>
 </body>

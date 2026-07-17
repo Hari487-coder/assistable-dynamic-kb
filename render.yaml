@@ -12,6 +12,8 @@ services:
     startCommand: node src/server.js
     healthCheckPath: /healthz
     envVars:
+      - key: NODE_ENV
+        value: production        # secure session cookies require this
       - key: SIGNUPS
         value: first-only        # first signup claims this instance
       - key: MOCK_ASSISTABLE

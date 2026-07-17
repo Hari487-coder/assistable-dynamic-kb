@@ -36,7 +36,9 @@ export function buildApp(deps) {
   app.use(helmet({
     xFrameOptions: { action: "deny" },
     contentSecurityPolicy: { directives: {
-      defaultSrc: ["'self'"], scriptSrc: ["'self'", "'unsafe-inline'"], styleSrc: ["'self'", "'unsafe-inline'"],
+      defaultSrc: ["'self'"], scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       scriptSrcAttr: ["'unsafe-inline'"], // views use inline handlers; helmet defaults this to 'none'
       frameAncestors: ["'none'"],
     }},

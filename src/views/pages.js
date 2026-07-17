@@ -1,16 +1,71 @@
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 export function layoutPage(title, body) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} - KB Bridge</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} - Live KB</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>:root{color-scheme:light}body{font:15px/1.5 system-ui;margin:2rem auto;max-width:860px;padding:0 1rem;color:#111;background:#fff}
-nav a{margin-right:1rem}.chip{padding:2px 8px;border-radius:10px;font-size:12px}
-.chip.active{background:#d4f7dc}.chip.stale{background:#fff3cd}.chip.error{background:#f8d7da}
-.chip.syncing,.chip.never_synced{background:#e2e3e5}table{border-collapse:collapse;width:100%}
-td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}input,select,textarea{width:100%;padding:6px;margin:4px 0}
-button{padding:8px 14px;cursor:pointer}.err{color:#b00}.warn{background:#fff3cd;padding:8px;border-radius:6px}
-fieldset{margin:8px 0}</style></head>
-<body><nav><a href="/sources">Sources</a><a href="/connect">Connection</a>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Daybreak tokens - ported from the mortgage platform design system */
+:root{color-scheme:light;
+--page-bg:#f6f6fb;--surface:#fff;--surface-sunken:#f0f0f7;--border:#eae9f3;--border-strong:#dbdaec;
+--ring:rgba(88,87,214,.26);--text-primary:#191823;--text-secondary:#55536e;--text-muted:#737190;
+--ink:#191823;--ink-hover:#2b2a3b;--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
+--good:#0c7d55;--good-tint:#e7f7f0;--good-tint-border:#c2e7d7;
+--warning:#a95f0b;--warning-tint:#fdf3e4;--warning-tint-border:#f2dcb6;
+--critical:#cf3d51;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
+--radius-sm:10px;--radius-md:14px;--radius-lg:18px;--radius-pill:999px;
+--shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
+--shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
+--font-display:"Bricolage Grotesque",system-ui,sans-serif;--font-mono:"JetBrains Mono",monospace}
+*{box-sizing:border-box}
+body{font:15px/1.55 Inter,system-ui,sans-serif;margin:0;color:var(--text-primary);background:var(--page-bg)}
+.shell{max-width:880px;margin:0 auto;padding:1.25rem 1rem 4rem}
+nav{display:flex;align-items:center;gap:.25rem;background:var(--surface);border:1px solid var(--border);
+border-radius:var(--radius-pill);padding:.4rem .6rem;box-shadow:var(--shadow-sm);margin-bottom:2rem}
+nav .brand{font-family:var(--font-display);font-weight:700;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto}
+nav .brand em{color:var(--accent-strong);font-style:normal}
+nav a{color:var(--text-secondary);text-decoration:none;padding:.35rem .8rem;border-radius:var(--radius-pill);font-weight:500;font-size:.92rem}
+nav a:hover{background:var(--surface-sunken);color:var(--text-primary)}
+h1{font-family:var(--font-display);font-weight:700;font-size:1.7rem;line-height:1.2;margin:.2rem 0 .6rem}
+h2{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:2rem 0 .6rem}
+p{color:var(--text-secondary)}p b{color:var(--text-primary)}
+.card,form,fieldset{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+padding:1.1rem 1.25rem;box-shadow:var(--shadow-sm)}
+fieldset{margin:.75rem 0}legend{font-weight:600;color:var(--text-primary);padding:0 .4rem}
+ol{padding-left:0;list-style:none;counter-reset:step}
+ol>li{counter-increment:step;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+padding:1rem 1.25rem 1rem 3.4rem;margin:.9rem 0;box-shadow:var(--shadow-sm);position:relative}
+ol>li::before{content:counter(step);position:absolute;left:1rem;top:1.05rem;width:1.7rem;height:1.7rem;
+background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);
+border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:.9rem}
+.chip{padding:2px 10px;border-radius:var(--radius-pill);font-size:.75rem;font-weight:600;vertical-align:middle}
+.chip.active{background:var(--good-tint);color:var(--good);border:1px solid var(--good-tint-border)}
+.chip.stale{background:var(--warning-tint);color:var(--warning);border:1px solid var(--warning-tint-border)}
+.chip.error{background:var(--critical-tint);color:var(--critical);border:1px solid var(--critical-tint-border)}
+.chip.syncing,.chip.never_synced{background:var(--surface-sunken);color:var(--text-muted);border:1px solid var(--border-strong)}
+table{border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--border);
+border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow-sm);font-size:.92rem}
+th{background:var(--surface-sunken);color:var(--text-muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+td,th{border-bottom:1px solid var(--border);padding:.55rem .8rem;text-align:left}
+tr:last-child td{border-bottom:none}
+input,select,textarea{width:100%;padding:.55rem .8rem;margin:4px 0;border:1px solid var(--border-strong);
+border-radius:var(--radius-sm);font:inherit;background:var(--surface)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--ring);outline-offset:1px;border-color:var(--accent)}
+button{padding:.55rem 1.15rem;cursor:pointer;background:var(--ink);color:#fff;border:none;
+border-radius:var(--radius-pill);font:inherit;font-weight:600;font-size:.92rem}
+button:hover{background:var(--ink-hover)}button:disabled{background:var(--border-strong);cursor:not-allowed}
+button.ghost,p>button,td button{background:var(--accent-tint);color:var(--accent-strong);border:1px solid var(--accent-tint-border)}
+button.ghost:hover,p>button:hover,td button:hover{background:var(--accent-tint-border)}
+code{font-family:var(--font-mono);font-size:.85em;background:var(--surface-sunken);padding:.12rem .4rem;border-radius:6px}
+pre{font-family:var(--font-mono);font-size:.82rem}
+a{color:var(--accent-strong)}
+.err{color:var(--critical)}
+.warn{background:var(--warning-tint);border:1px solid var(--warning-tint-border);color:var(--warning);padding:.6rem .9rem;border-radius:var(--radius-sm)}
+small{color:var(--text-muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style></head>
+<body><div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a>
 <a href="#" onclick="api('/logout',{}).then(()=>location='/login');return false">Log out</a></nav>
 ${body}
 <script>
@@ -21,7 +76,7 @@ async function api(path, body){
   return out;
 }
 function formJson(f){const o={};new FormData(f).forEach((v,k)=>{o[k]=v});return o}
-</script></body></html>`;
+</script></div></body></html>`;
 }
 
 const authForm = (action, label) => `
