@@ -37,6 +37,7 @@ export function buildApp(deps) {
     xFrameOptions: { action: "deny" },
     contentSecurityPolicy: { directives: {
       defaultSrc: ["'self'"], scriptSrc: ["'self'", "'unsafe-inline'"], styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'unsafe-inline'"], // views use inline handlers; helmet defaults this to 'none'
       frameAncestors: ["'none'"],
     }},
   }));
@@ -55,6 +56,13 @@ export function buildApp(deps) {
 
 const isMain = process.argv[1] && /server\.js$/.test(process.argv[1]);
 if (isMain) {
+  // Minimal .env loader (no dotenv dep): KEY=VALUE lines, # comments stripped.
+  try {
+    for (const line of fs.readFileSync(".env", "utf8").split("\n")) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*([^#]*)/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
+    }
+  } catch { /* no .env — rely on real env vars */ }
   const config = loadConfig();
   const logger = createLogger();
   fs.mkdirSync(config.dataDir, { recursive: true });

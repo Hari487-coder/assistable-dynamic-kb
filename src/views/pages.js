@@ -3,7 +3,7 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 export function layoutPage(title, body) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} - KB Bridge</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{font:15px/1.5 system-ui;margin:2rem auto;max-width:860px;padding:0 1rem;color:#111}
+<style>:root{color-scheme:light}body{font:15px/1.5 system-ui;margin:2rem auto;max-width:860px;padding:0 1rem;color:#111;background:#fff}
 nav a{margin-right:1rem}.chip{padding:2px 8px;border-radius:10px;font-size:12px}
 .chip.active{background:#d4f7dc}.chip.stale{background:#fff3cd}.chip.error{background:#f8d7da}
 .chip.syncing,.chip.never_synced{background:#e2e3e5}table{border-collapse:collapse;width:100%}
