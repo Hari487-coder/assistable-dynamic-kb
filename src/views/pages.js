@@ -112,33 +112,68 @@ ${scopesBox()}
 <button>${conn ? "Replace key" : "Connect"}</button></form>
 <p>The key is verified live against the Assistable API before it is accepted.</p>`);
 
-export const sourcesPage = (sources) => layoutPage("Sources", `
-<h1>Dynamic sources</h1><p><a href="/sources/new">+ Add source</a></p>
-<table><tr><th>Name</th><th>Type</th><th>Status</th><th>Last sync</th></tr>
-${sources.map((s) => `<tr><td><a href="/sources/${esc(s.id)}">${esc(s.name)}</a></td><td>${esc(s.type)}</td>
-<td><span class="chip ${esc(s.status)}">${esc(s.status)}</span></td><td>${esc(s.last_sync_at ?? "never")}</td></tr>`).join("")}
-</table>`);
+const TYPE_LABELS = {
+  csv: "Spreadsheet (CSV)", feed: "Data feed", website: "Website pages",
+  webtable: "Price table on a page", database: "Database",
+};
 
-export const newSourcePage = (assistants, notConnected) => layoutPage("New source", `
-<h1>New dynamic source</h1>
-${notConnected ? `<p class="warn">Connect your Assistable account first - the tool can't be created without it.</p>` : ""}
+export const sourcesPage = (sources) => layoutPage("Your data", `
+<h1>Your data</h1>
+${sources.length === 0 ? `
+<div class="card" style="text-align:center;padding:2.5rem">
+<p style="font-size:1.05rem"><b>Nothing connected yet.</b></p>
+<p>Connect your inventory, prices, or website - your AI assistant will answer
+from it live, on calls and in chat.</p>
+<a href="/sources/new"><button>Connect your first data</button></a>
+</div>` : `
+<p><a href="/sources/new"><button class="ghost">+ Add more data</button></a></p>
+<table><tr><th>Name</th><th>Kind</th><th>Status</th><th>Updated</th></tr>
+${sources.map((s) => {
+  const st = humanizeStatus(s);
+  return `<tr><td><a href="/sources/${esc(s.id)}">${esc(s.name)}</a></td><td>${esc(TYPE_LABELS[s.type] ?? s.type)}</td>
+<td><span class="chip ${esc(st.tone)}">${esc(st.label)}</span></td><td>${esc(timeAgo(s.last_sync_at))}</td></tr>`;
+}).join("")}
+</table>`}`);
+
+const TYPE_CARDS = [
+  { value: "csv", title: "I have a spreadsheet or file", desc: "Upload a CSV export of your inventory, products, or price list. Works with Excel and Google Sheets exports." },
+  { value: "webtable", title: "My prices are in a table on my website", desc: "Paste the link to the page that shows the table (like a scrap price list or rate sheet). We read the table itself." },
+  { value: "website", title: "The answers are on my website", desc: "Hours, services, policies, FAQs - we read your site's pages and keep them fresh." },
+  { value: "feed", title: "I have a data feed link", desc: "A URL that returns JSON, CSV, or XML - like a Shopify products.json or a DMS inventory export." },
+  { value: "database", title: "Connect my database (advanced)", desc: "Read-only Postgres or Supabase. You'll need a connection string from your developer." },
+];
+
+export const newSourcePage = (assistants, notConnected) => layoutPage("Connect data", `
+<h1>Connect your data</h1>
+<p>Pick where your information lives - we'll keep a fresh copy your assistant answers from.</p>
+${notConnected ? `<p class="warn">Connect your Assistable account first (Connection page) - without it we can't attach this to your assistant.</p>` : ""}
 <form onsubmit="submitSource(this);return false">
-<label>Name <input name="name" required maxlength="60"></label>
-<label>Type <select name="type" onchange="document.querySelectorAll('[data-cfg]').forEach(d=>{const on=d.dataset.cfg===this.value;d.style.display=on?'':'none';d.querySelectorAll('input').forEach(i=>i.disabled=!on)})">
-<option value="csv">CSV upload</option><option value="feed">Feed URL</option>
-<option value="website">Website (pages &amp; text)</option><option value="webtable">Price table on a web page</option>
-<option value="database">Postgres / Supabase</option></select></label>
-<div data-cfg="csv"><label>CSV file <input type="file" id="csvfile" accept=".csv"></label></div>
-<div data-cfg="feed" style="display:none"><label>Feed URL <input name="url_feed" type="url" disabled></label></div>
-<div data-cfg="website" style="display:none"><label>Site URL <input name="url_site" type="url" disabled></label></div>
-<div data-cfg="webtable" style="display:none"><label>Page URL with the table (e.g. your prices page) <input name="url_table" type="url" disabled></label></div>
-<div data-cfg="database" style="display:none"><label>Connection string <input name="connection_string" disabled></label>
-<label>Table or view <input name="table" disabled></label></div>
-<label>Re-sync every <select name="schedule_minutes"><option value="1440">day</option>
-<option value="360">6 hours</option><option value="60">hour</option></select></label>
-<fieldset><legend>Attach to assistants</legend>
-${assistants.map((a) => `<label><input type="checkbox" name="assistant" value="${esc(a.id)}"> ${esc(a.name)}</label>`).join("")}
-</fieldset><button>Create + provision tool</button></form>
+<label>What should we call this? <input name="name" required maxlength="60" placeholder="e.g. Vehicle inventory, Scrap prices, Our website"></label>
+<fieldset><legend>Where is the data?</legend>
+${TYPE_CARDS.map((c, i) => `
+<label style="display:flex;gap:.7rem;align-items:flex-start;padding:.7rem;border:1px solid var(--border);border-radius:var(--radius-md);margin:.45rem 0;cursor:pointer">
+<input type="radio" name="type" value="${c.value}" ${i === 0 ? "checked" : ""} style="width:auto;margin-top:.3rem"
+ onchange="document.querySelectorAll('[data-cfg]').forEach(d=>{const on=d.dataset.cfg===this.value;d.style.display=on?'':'none';d.querySelectorAll('input').forEach(i=>i.disabled=!on)})">
+<span><b>${c.title}</b><br><small>${c.desc}</small></span></label>`).join("")}
+</fieldset>
+<div data-cfg="csv"><label>Your CSV file <input type="file" id="csvfile" accept=".csv"></label>
+<small>The first row should be column names (make, model, price...).</small></div>
+<div data-cfg="feed" style="display:none"><label>Feed link <input name="url_feed" type="url" placeholder="https://yourstore.com/products.json" disabled></label></div>
+<div data-cfg="website" style="display:none"><label>Your website <input name="url_site" type="url" placeholder="https://yourbusiness.com" disabled></label></div>
+<div data-cfg="webtable" style="display:none"><label>Link to the page with the table <input name="url_table" type="url" placeholder="https://yourbusiness.com/prices" disabled></label></div>
+<div data-cfg="database" style="display:none"><label>Connection string <input name="connection_string" placeholder="postgres://..." disabled></label>
+<label>Table or view name <input name="table" disabled></label>
+<small>Use read-only credentials - we only ever run SELECT.</small></div>
+<label>How often should we check for changes?
+<select name="schedule_minutes"><option value="1440">Once a day</option>
+<option value="360">Every 6 hours</option><option value="60">Every hour</option></select></label>
+<small>Prices that change during the day? Your developer can also push updates instantly - see the source page after creating.</small>
+<fieldset><legend>Which assistants should answer from this?</legend>
+${assistants.length ? assistants.map((a) => `<label><input type="checkbox" name="assistant" value="${esc(a.id)}" style="width:auto"> ${esc(a.name)}</label>`).join("")
+  : `<small>No assistants found on your Assistable account yet - create one there first, then come back.</small>`}
+</fieldset><button>Connect it</button>
+<p><small>What happens next: we fetch your data (usually under a minute), create the
+answer tool in your Assistable account, and attach it to the assistants you ticked.</small></p></form>
 <script>
 async function submitSource(f){
   const body = formJson(f);
@@ -153,12 +188,58 @@ async function submitSource(f){
 
 const stepChip = (done) => `<span class="chip ${done ? "active" : "never_synced"}">${done ? "done" : "to do"}</span>`;
 
+export function timeAgo(iso) {
+  if (!iso) return "never";
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
+
+// Raw sync errors are for engineers; owners need to know what to DO.
+export function humanizeError(err) {
+  const e = String(err || "");
+  if (/robots/i.test(e)) return "That website asks not to be copied (robots.txt). Try a different page, or upload the data as a CSV instead.";
+  if (/SSRF|private address|scheme not allowed|port .* not allowed/i.test(e)) return "That address isn't reachable from the public internet. The link must be a normal public https:// page.";
+  if (/no data table/i.test(e)) return "We couldn't find a table on that page. Make sure the link goes straight to the page that shows the table.";
+  if (/HTTP 40[134]/i.test(e)) return "That link didn't work (page missing or blocked). Double-check the URL in a private browser window.";
+  if (/validation gate/i.test(e)) return "The new data looked much smaller than before, so we kept your old data to be safe. If the change is intentional, press Force sync.";
+  if (/limit is 50000/i.test(e)) return "That source has too many rows (limit 50,000). Split it into smaller sources.";
+  if (/could not parse CSV/i.test(e)) return "That file doesn't look like a valid CSV. Export it again as CSV and re-upload.";
+  if (/no rows|returned no rows|empty/i.test(e)) return "The source came back empty. Check that the link or table actually contains data.";
+  if (/invalid table name/i.test(e)) return "That table name isn't valid. Copy it exactly as it appears in your database.";
+  if (/ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|HTTP 5\d\d|HTTP 429/i.test(e)) return "We couldn't reach it just now. We'll retry automatically - no action needed yet.";
+  return e;
+}
+
+export function humanizeStatus(source, lastError) {
+  const updated = timeAgo(source.last_sync_at);
+  const fresh = source.last_sync_at && Date.now() - Date.parse(source.last_sync_at) < 2 * source.schedule_minutes * 60_000;
+  switch (source.status) {
+    case "active":
+      return fresh
+        ? { tone: "active", label: "Working", text: `Answering calls and chats from data updated ${updated}.` }
+        : { tone: "stale", label: "Working, data aging", text: `Still answering, but the data is from ${updated}. The next refresh should catch up.` };
+    case "syncing": return { tone: "syncing", label: "Updating", text: "Refreshing your data right now - this usually takes under a minute." };
+    case "never_synced": return { tone: "never_synced", label: "Waiting", text: "The first sync hasn't run yet." };
+    case "stale": return { tone: "stale", label: "Trouble refreshing", text: `Refreshing keeps failing, so we're still answering from data updated ${updated}. ${humanizeError(lastError)}` };
+    default: return { tone: "error", label: "Needs attention", text: humanizeError(lastError) || "The last sync failed." };
+  }
+}
+
 export const setupPage = (state) => {
   const toolName = state.firstTool?.tool_id ? state.firstToolName : "your live data tool";
   const snippet = `For ANY question about ${state.firstSourceName || "your live data"}, ALWAYS call ${toolName} first and answer only from the result. If it returns nothing, say you don't have that information. When a speech_hint is present, read it aloud. If data_freshness is "stale", say the info is as of the last update.`;
+  const allDone = state.connected && state.sourceCount > 0 && state.firstTool?.tool_id;
   return layoutPage("Setup", `
 <h1>Set up your Live KB</h1>
-<p>Four steps and your Assistable agents answer from live data - on calls and in chat.</p>
+${allDone ? `<div class="card" style="background:var(--good-tint);border-color:var(--good-tint-border)">
+<p style="margin:.2rem 0;color:var(--good)"><b>You're live.</b> Your assistant now answers from your own data
+on calls and in chat. Call it and ask something only your data knows - then watch
+the question appear on your <a href="/sources/${esc(state.firstSourceId)}">data page</a>.</p></div>`
+    : `<p>Four steps and your Assistable agents answer from live data - on calls and in chat.</p>`}
 <ol style="padding-left:1.2rem">
 <li><p><b>Connect your Assistable account</b> ${stepChip(state.connected)}<br>
 Paste your v3 API key so this portal can create tools in <i>your</i> account.
@@ -201,35 +282,66 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
 };
 
-export const sourceDetailPage = (source, runs, tool, calls, unanswered) => layoutPage(source.name, `
-<h1>${esc(source.name)} <span class="chip ${esc(source.status)}">${esc(source.status)}</span></h1>
-<p>Type: ${esc(source.type)} - last sync ${esc(source.last_sync_at ?? "never")} - next ${esc(source.next_run_at ?? "-")}</p>
-${tool?.tool_id ? `<p>Tool: <code>${esc(tool.tool_id)}</code> on ${esc(JSON.parse(tool.assistant_ids_json).length)} assistant(s)</p>` : ""}
-${tool?.last_error ? `<p class="err">Tool provisioning error: ${esc(tool.last_error)}</p>` : ""}
-${tool && tool.updated_at > tool.created_at ? `<p class="warn">Voice agents cache the tool schema - re-save the assistant in Assistable to refresh voice.</p>` : ""}
+export const sourceDetailPage = (source, runs, tool, calls, unanswered) => {
+  const lastError = runs.find((r) => r.error)?.error;
+  const st = humanizeStatus(source, lastError);
+  const attached = tool?.tool_id ? JSON.parse(tool.assistant_ids_json).length : 0;
+  return layoutPage(source.name, `
+<h1>${esc(source.name)} <span class="chip ${esc(st.tone)}">${esc(st.label)}</span></h1>
+<div class="card"><p style="margin:.2rem 0"><b>${esc(st.text)}</b></p>
+<p style="margin:.4rem 0 .2rem">${tool?.tool_id
+    ? `Connected to ${esc(attached)} assistant${attached === 1 ? "" : "s"} - they answer from this data on calls and in chat.`
+    : `<span class="err">Not connected to an assistant yet.</span> ${tool?.last_error ? esc(humanizeError(tool.last_error)) : "Connect your Assistable account, then delete and re-add this source."}`}</p>
+${tool && tool.updated_at > tool.created_at ? `<p class="warn" style="margin:.5rem 0 0">The available filters changed. Open your assistant in Assistable and press Save once so phone calls pick up the change.</p>` : ""}
+</div>
+<h2>Try it - ask like a customer would</h2>
+<form onsubmit="tryIt(this);return false">
+<input name="q" placeholder="e.g. do you have a 2022 tacoma under 30k" required>
+<button>Ask</button></form>
+<pre id="tryout" style="white-space:pre-wrap;background:var(--surface-sunken);padding:10px;border-radius:10px;display:none"></pre>
+<script>
+async function tryIt(f){
+  const out = await api('/sources/${esc(source.id)}/test', { query: f.q.value });
+  const el = document.getElementById('tryout');
+  el.style.display = 'block';
+  el.textContent = (out.speech_hint ? 'Your assistant would say:\\n"' + out.speech_hint + '"\\n\\nDetails:\\n' : '') + JSON.stringify(out, null, 1);
+}
+</script>
+<h2>Actions</h2>
 <p>
-<button onclick="api('/sources/${esc(source.id)}/sync',{}).then(()=>location.reload())">Sync now</button>
-<button onclick="api('/sources/${esc(source.id)}/sync',{force:true}).then(()=>location.reload())">Force sync</button>
-<button onclick="api('/sources/${esc(source.id)}/rollback',{}).then(()=>location.reload())">Roll back</button>
-<button onclick="confirm('Delete source and its Assistable tool?')&&api('/sources/${esc(source.id)}/delete',{}).then(()=>location='/sources')">Delete</button>
+<button onclick="api('/sources/${esc(source.id)}/sync',{}).then(()=>location.reload())">Refresh data now</button>
+<button onclick="api('/sources/${esc(source.id)}/sync',{force:true}).then(()=>location.reload())">Force refresh</button>
+<button onclick="api('/sources/${esc(source.id)}/rollback',{}).then(()=>location.reload())">Undo last refresh</button>
+<button onclick="confirm('Delete this data source and its assistant tool?')&&api('/sources/${esc(source.id)}/delete',{}).then(()=>location='/sources')">Delete</button>
 </p>
-<h2>Live update API</h2>
-<p>For real-time data (live pricing, stock changes): call these from your own
-system the moment something changes - answers update in seconds, no schedule wait.</p>
-<p><b>Trigger a re-sync now</b> (any source type):</p>
+<p><small>Checks for changes ${source.schedule_minutes >= 1440 ? "once a day" : source.schedule_minutes >= 360 ? "every 6 hours" : "every hour"};
+next check ${esc(source.next_run_at ? timeAgo(source.next_run_at).replace(" ago", " from now").replace("just now", "any moment") : "-")}.
+A refresh never breaks live answers - the old data keeps serving until the new data is verified.</small></p>
+<h2>What customers asked</h2>
+${calls.length === 0 ? `<p><small>No questions yet - once your assistant starts using this, every question shows up here.</small></p>` : `
+<table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th></tr>
+${calls.map((c) => {
+  let q = c.args_json;
+  try { q = JSON.parse(c.args_json).query || c.args_json; } catch { /* raw */ }
+  return `<tr><td>${esc(timeAgo(c.ts))}</td><td>${esc(String(q).slice(0, 90))}</td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}ms</td></tr>`;
+}).join("")}</table>`}
+${unanswered.length ? `<h2>Questions we couldn't answer</h2><ul>
+${unanswered.map((u) => {
+  let q = u.args_json;
+  try { q = JSON.parse(u.args_json).query || u.args_json; } catch { /* raw */ }
+  return `<li>"${esc(String(q).slice(0, 120))}" - asked ${esc(u.n)}x</li>`;
+}).join("")}</ul>
+<p><small>Usually this means the item isn't in your data yet - add it and refresh.</small></p>` : ""}
+<details><summary style="cursor:pointer;font-weight:600;margin:1.5rem 0 .5rem">For developers: instant updates &amp; history</summary>
+<p>Push updates the moment something changes (live pricing, stock):</p>
 <pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
   {your-instance-url}/api/push/${esc(source.id)}/refresh</pre>
-${source.type === "csv" ? `<p><b>Push replacement content directly</b> (CSV sources):</p>
-<pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
+${source.type === "csv" ? `<pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
   -H "content-type: text/csv" --data-binary @prices.csv \\
   {your-instance-url}/api/push/${esc(source.id)}/content</pre>` : ""}
 <small>The push secret is separate from the tool secret - reads and writes never share a credential.</small>
 <h2>Sync history</h2>
 <table><tr><th>Started</th><th>Status</th><th>Items</th><th>Error</th></tr>
-${runs.map((r) => `<tr><td>${esc(r.started_at)}</td><td>${esc(r.status)}</td><td>${esc(r.items_count ?? "-")}</td><td>${esc(r.error ?? "")}</td></tr>`).join("")}</table>
-<h2>Recent agent queries</h2>
-<table><tr><th>When</th><th>Args</th><th>Results</th><th>ms</th></tr>
-${calls.map((c) => `<tr><td>${esc(c.ts)}</td><td><code>${esc(c.args_json.slice(0, 120))}</code></td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}</td></tr>`).join("")}</table>
-${unanswered.length ? `<h2>Unanswered queries (0 results)</h2><ul>
-${unanswered.map((u) => `<li><code>${esc(u.args_json.slice(0, 140))}</code> - asked ${esc(u.n)}x</li>`).join("")}</ul>
-<p>Fix these by adding the missing items to your data, or extending aliases.</p>` : ""}`);
+${runs.map((r) => `<tr><td>${esc(r.started_at)}</td><td>${esc(r.status)}</td><td>${esc(r.items_count ?? "-")}</td><td>${esc(r.error ? humanizeError(r.error) : "")}</td></tr>`).join("")}</table>
+</details>`);
+};

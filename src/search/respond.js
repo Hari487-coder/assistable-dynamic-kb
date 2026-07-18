@@ -48,6 +48,18 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
       took_ms: tookMs,
     };
   }
+  if (structured.browse) {
+    const askAbout = (structured.browseColumns || []).join(", ") || "what you're looking for";
+    return {
+      ...base,
+      result_count: structured.resultCount,
+      browse: true,
+      items: structured.items.slice(0, 3).map((i) => ({ title: i.title, ...trimItem(i.structured) })),
+      speech_hint: `We have ${structured.resultCount} option${structured.resultCount === 1 ? "" : "s"} right now. Ask the customer what they're looking for - you can filter by ${askAbout}.`,
+      guidance: "The caller hasn't narrowed anything down yet. Ask a clarifying question using the filterable fields; don't read the whole list.",
+      took_ms: tookMs,
+    };
+  }
   const items = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...trimItem(i.structured) })) : [];
   const alternatives = structured.alternatives.map((i) => ({ title: i.title, ...trimItem(i.structured) }));
   const out = {

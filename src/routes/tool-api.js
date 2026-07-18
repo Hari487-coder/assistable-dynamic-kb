@@ -1,5 +1,5 @@
 import express, { Router } from "express";
-import { constantTimeEqual, encryptSecret } from "../crypto.js";
+import { constantTimeEqual, encryptSecret, sha256Hex } from "../crypto.js";
 import { searchStructured } from "../search/structured.js";
 import { searchText } from "../search/text.js";
 import { buildToolResponse } from "../search/respond.js";
@@ -30,6 +30,12 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
   const router = Router();
   const buckets = new Map(); // `${kind}:${sourceId}` -> {windowStart, count}
   const convMem = new Map(); // `${sourceId}:${callId}` -> {filters, ts}
+  // Result micro-cache: the platform proxy retries timeouts up to 4x and voice
+  // callers repeat themselves. Keyed on the active batch id, so every sync
+  // swap invalidates naturally; keyed on callId so conversation-context
+  // answers never leak between calls.
+  const resultCache = new Map(); // key -> {out, ts}
+  const CACHE_TTL_MS = 60_000, CACHE_MAX = 500;
 
   const softError = (error, hint) => ({ ok: false, error, speech_hint: hint });
 
@@ -102,6 +108,12 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
     const callId = req.get("call_control_id") || body.call?.call_id || null;
     const convKey = callId ? `${source.id}:${callId}` : null;
 
+    const cacheKey = `${source.id}:${source.active_batch_id}:${callId ?? ""}:${sha256Hex(JSON.stringify(args))}`;
+    const hit = resultCache.get(cacheKey);
+    if (hit && Date.now() - hit.ts < CACHE_TTL_MS) {
+      return res.json({ ...hit.out, cached: true });
+    }
+
     let out;
     try {
       if (!source.active_batch_id) {
@@ -138,6 +150,14 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       out = softError("temporarily_unavailable", "I couldn't check the live data just now - offer to try again in a moment.");
     }
 
+    if (out.ok) {
+      resultCache.set(cacheKey, { out, ts: Date.now() });
+      if (resultCache.size > CACHE_MAX) {
+        const cutoff = Date.now() - CACHE_TTL_MS;
+        for (const [k, v] of resultCache) if (v.ts < cutoff) resultCache.delete(k);
+        while (resultCache.size > CACHE_MAX) resultCache.delete(resultCache.keys().next().value);
+      }
+    }
     try {
       db.prepare("INSERT INTO tool_calls (source_id,ts,args_json,result_count,relaxations,took_ms,ok) VALUES (?,?,?,?,?,?,?)")
         .run(source.id, new Date().toISOString(), JSON.stringify(args).slice(0, 2000),
