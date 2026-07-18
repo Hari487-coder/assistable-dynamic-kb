@@ -10,29 +10,35 @@
 <meta property="og:description" content="Your AI agent, answering from inventory and prices that are current, not from a document someone uploaded last quarter.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* Minimal, and deliberately white only: one paper colour, one violet,
    hairlines instead of boxes, space instead of shadows. Violet is used sparingly
    on purpose: that restraint is what keeps it a brand rather than a theme. */
 :root{color-scheme:light;
---paper:#fff;--ink:#0f0e13;--ink-2:#5c5870;--ink-3:#6f6b81;
---rule:#eeecf4;--rule-2:#e0dcec;
---violet:#5b46e0;--violet-ink:#4a37c9;--violet-wash:#f6f4ff;
---code-bg:#141320;--code-fg:#e9e7f4;--code-dim:#7f7a9c;--code-str:#9ad9b8;--code-num:#b3a5ff;
---font-body:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
---font-display:"Bricolage Grotesque",var(--font-body);
---font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+/* Lifted from assistable.ai so the add-on reads as part of the product:
+   Geist throughout, violet-600 accent, their slate grey ramp, 5px controls.
+   Their #99a1af muted is 2.5:1 on white, so small labels use #6a7282 (4.8:1)
+   instead. Matching a brand does not include inheriting a contrast failure. */
+--paper:#fff;--surface:#f7f7fb;
+--ink:#101828;--body:#0a0a0a;--ink-2:#4a5565;--ink-3:#6a7282;
+--rule:#e8e8ef;--rule-2:#d9d9e3;
+--violet:#7c3aed;--violet-ink:#6b2fd6;--violet-wash:#f5f0ff;
+--code-bg:#101828;--code-fg:#e8eaf0;--code-dim:#8b95a8;--code-str:#8fdbb4;--code-num:#c4a4ff;
+--r-control:5px;--r-panel:12px;
+--font-body:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--font-display:var(--font-body);
+--font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--paper);color:var(--ink);
+body{margin:0;background:var(--paper);color:var(--body);
 font:17px/1.7 var(--font-body);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .wrap{max-width:46rem;margin:0 auto;padding:0 1.5rem}
 
 /* Masthead: wordmark and one link. The dot is the only decoration on the page. */
 header.top{display:flex;align-items:center;justify-content:space-between;
 padding:1.6rem 0 0;font-size:.94rem}
-.mark{font-family:var(--font-display);font-weight:700;font-size:1.02rem;letter-spacing:-.01em;
+.mark{font-family:var(--font-display);font-weight:600;font-size:1.02rem;letter-spacing:-.01em;
 display:inline-flex;align-items:center;gap:.42rem;color:var(--ink);text-decoration:none}
 .mark i{width:.42rem;height:.42rem;border-radius:50%;background:var(--violet);display:block}
 .top a.quiet{color:var(--ink-2);text-decoration:none}
@@ -40,12 +46,13 @@ display:inline-flex;align-items:center;gap:.42rem;color:var(--ink);text-decorati
 
 /* Hero: left aligned, four elements, nothing else. Space does the work. */
 .hero{padding:5.5rem 0 4rem}
-h1{font-family:var(--font-display);font-weight:700;margin:0 0 1.1rem;
+h1{font-family:var(--font-display);font-weight:500;margin:0 0 1.1rem;color:var(--ink);
 font-size:clamp(2.4rem,6.4vw,3.5rem);line-height:1.04;letter-spacing:-.035em;max-width:15ch}
 .lede{font-size:1.14rem;line-height:1.65;color:var(--ink-2);max-width:38ch;margin:0 0 2.2rem}
 .actions{display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap}
 .go{display:inline-block;background:var(--violet);color:#fff;text-decoration:none;font-weight:600;
-font-size:.98rem;padding:.72rem 1.35rem;border-radius:8px;transition:background .14s ease,transform .1s ease}
+font-size:.87rem;padding:.62rem 1.15rem;border-radius:var(--r-control);
+transition:background .14s ease,transform .1s ease}
 .go:hover{background:var(--violet-ink)}
 .go:active{transform:translateY(1px)}
 .text-link{color:var(--ink-2);text-decoration:none;font-size:.98rem;
@@ -59,8 +66,8 @@ display:grid;gap:.55rem;font-size:.95rem;color:var(--ink-2)}
 font-variant-numeric:tabular-nums}
 
 section{padding:4.5rem 0;border-top:1px solid var(--rule)}
-h2{font-family:var(--font-display);font-weight:600;font-size:1.42rem;letter-spacing:-.02em;
-margin:0 0 .6rem;line-height:1.25}
+h2{font-family:var(--font-display);font-weight:500;font-size:1.7rem;letter-spacing:-.025em;
+margin:0 0 .7rem;line-height:1.2;color:var(--ink)}
 .say{color:var(--ink-2);max-width:60ch;margin:0 0 2rem}
 
 /* The exchange: the one piece of evidence on the page. Labels are quiet, the
@@ -69,7 +76,7 @@ margin:0 0 .6rem;line-height:1.25}
 .turn .who{display:block;font-size:.74rem;letter-spacing:.09em;text-transform:uppercase;
 color:var(--ink-3);margin:0 0 .35rem}
 .turn p{margin:0;font-size:1.06rem;color:var(--ink);max-width:52ch}
-pre{background:var(--code-bg);color:var(--code-fg);border-radius:12px;padding:1.15rem 1.25rem;
+pre{background:var(--code-bg);color:var(--code-fg);border-radius:var(--r-panel);padding:1.15rem 1.25rem;
 margin:0 0 1.6rem;overflow-x:auto;font-family:var(--font-mono);font-size:.8rem;line-height:1.62}
 pre .k{color:var(--code-dim)}
 pre .s{color:var(--code-str)}
@@ -91,11 +98,11 @@ ol.steps li{counter-increment:s;position:relative;padding:0 0 1.5rem 2.4rem;max-
 ol.steps li:last-child{padding-bottom:0}
 ol.steps li::before{content:counter(s);position:absolute;left:0;top:.15rem;
 font-family:var(--font-mono);font-size:.8rem;color:var(--violet)}
-ol.steps b{display:block;color:var(--ink);font-weight:600;margin-bottom:.15rem}
+ol.steps b{display:block;color:var(--ink);font-weight:500;margin-bottom:.15rem}
 ol.steps span{color:var(--ink-2);font-size:.97rem}
 
 .aside{border-left:2px solid var(--violet);padding:.1rem 0 .1rem 1.1rem;color:var(--ink-2);
-font-size:.97rem;max-width:58ch;background:var(--violet-wash);border-radius:0 8px 8px 0;
+font-size:.97rem;max-width:58ch;background:var(--violet-wash);border-radius:0 var(--r-panel) var(--r-panel) 0;
 padding:.9rem 1.1rem .9rem 1.1rem}
 
 .faq dl{margin:0}
@@ -103,10 +110,10 @@ padding:.9rem 1.1rem .9rem 1.1rem}
 .faq dt:first-child{margin-top:0}
 .faq dd{margin:0;color:var(--ink-2);max-width:60ch;font-size:.99rem}
 code{font-family:var(--font-mono);font-size:.86em;color:var(--ink);
-background:var(--violet-wash);padding:.1rem .35rem;border-radius:4px}
+background:var(--violet-wash);padding:.1rem .35rem;border-radius:var(--r-control)}
 a{color:var(--violet)}
 footer{padding:3rem 0 5rem;border-top:1px solid var(--rule);color:var(--ink-3);font-size:.92rem}
-:focus-visible{outline:2px solid var(--violet);outline-offset:3px;border-radius:4px}
+:focus-visible{outline:2px solid var(--violet);outline-offset:3px;border-radius:var(--r-control)}
 
 @media (prefers-reduced-motion:no-preference){
 .hero>*{animation:rise .55s cubic-bezier(.16,1,.3,1) backwards}

@@ -4,33 +4,33 @@ export function layoutPage(title, body) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} - Live KB</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* Daybreak tokens (from the mortgage platform), extended with a dark set.
    One accent (iris) across the whole app; one radius scale; light and dark
    are the SAME hierarchy, not two different designs. */
 :root{color-scheme:light dark;
---page-bg:#faf9ff;--surface:#fff;--surface-sunken:#f4f1fe;--border:#e9e5fb;--border-strong:#d6cff6;
---ring:rgba(91,70,224,.3);--text-primary:#16141f;--text-secondary:#544f6b;--text-muted:#7c7794;
---ink:#5b46e0;--ink-hover:#4a37c9;--ink-fg:#fff;
---accent:#5b46e0;--accent-strong:#4a37c9;--accent-tint:#f2effe;--accent-tint-border:#ded6fb;
+--page-bg:#f7f7fb;--surface:#fff;--surface-sunken:#f2f2f7;--border:#e8e8ef;--border-strong:#d9d9e3;
+--ring:rgba(124,58,237,.32);--text-primary:#101828;--text-secondary:#4a5565;--text-muted:#6a7282;
+--ink:#7c3aed;--ink-hover:#6b2fd6;--ink-fg:#fff;
+--accent:#7c3aed;--accent-strong:#6b2fd6;--accent-tint:#f5f0ff;--accent-tint-border:#e4d8fd;
 --good:#0c7d55;--good-tint:#e9f7f1;--good-tint-border:#c2e7d7;
 --warning:#a35c0c;--warning-tint:#fdf4e6;--warning-tint-border:#f0dcb8;
 --critical:#c5364c;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
---radius-sm:10px;--radius-md:14px;--radius-lg:18px;--radius-pill:999px;
+--radius-sm:5px;--radius-md:8px;--radius-lg:12px;--radius-pill:999px;
 --shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
 --shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
 /* Brand faces load from Google; the stack behind them is what actually
    renders if the instance is offline or firewalled, so it is a real stack,
    not a bare fallback. */
---font-body:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
---font-display:"Bricolage Grotesque",var(--font-body);
---font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+--font-body:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--font-display:var(--font-body);
+--font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 @media (prefers-color-scheme:dark){:root{
 --page-bg:#0f0d17;--surface:#171523;--surface-sunken:#1e1b2e;--border:#2a2540;--border-strong:#3a3358;
 --ring:rgba(139,124,240,.42);--text-primary:#efedf8;--text-secondary:#aaa4c4;--text-muted:#847da0;
---ink:#8b7cf0;--ink-hover:#a294f7;--ink-fg:#12101d;
---accent:#8b7cf0;--accent-strong:#a89bf8;--accent-tint:#221d3d;--accent-tint-border:#3a3163;
+--ink:#a06bff;--ink-hover:#b285ff;--ink-fg:#0f0d17;
+--accent:#a06bff;--accent-strong:#bb98ff;--accent-tint:#221d3d;--accent-tint-border:#3a3163;
 --good:#5fd3a3;--good-tint:#14291f;--good-tint-border:#245840;
 --warning:#e2a44f;--warning-tint:#2b2113;--warning-tint-border:#5a4321;
 --critical:#f0808f;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
@@ -43,13 +43,13 @@ nav{display:flex;align-items:center;gap:.25rem;background:var(--surface);border:
 border-radius:var(--radius-pill);padding:.4rem .6rem;box-shadow:var(--shadow-sm);margin-bottom:2rem;
 overflow-x:auto;scrollbar-width:none}
 nav::-webkit-scrollbar{display:none}
-nav .brand{font-family:var(--font-display);font-weight:700;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto;white-space:nowrap}
+nav .brand{font-family:var(--font-display);font-weight:600;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto;white-space:nowrap}
 nav .brand em{color:var(--accent-strong);font-style:normal}
 nav a{color:var(--text-secondary);text-decoration:none;padding:.35rem .8rem;border-radius:var(--radius-pill);
 font-weight:500;font-size:.92rem;white-space:nowrap}
 nav a:hover{background:var(--surface-sunken);color:var(--text-primary)}
-h1{font-family:var(--font-display);font-weight:700;font-size:1.7rem;line-height:1.2;margin:.2rem 0 .6rem}
-h2{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:2rem 0 .6rem}
+h1{font-family:var(--font-display);font-weight:500;font-size:1.75rem;line-height:1.2;margin:.2rem 0 .6rem;letter-spacing:-.025em}
+h2{font-family:var(--font-display);font-weight:500;font-size:1.2rem;margin:2rem 0 .6rem;letter-spacing:-.015em}
 p{color:var(--text-secondary)}p b{color:var(--text-primary)}
 .card,form,fieldset{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
 padding:1.1rem 1.25rem;box-shadow:var(--shadow-sm)}
@@ -70,7 +70,7 @@ white-space:nowrap}
    tabular figures - a column of stats must never wobble. */
 .tiles{display:flex;gap:.7rem;flex-wrap:wrap;margin:.6rem 0}
 .tile{flex:1 1 8rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.8rem 1rem}
-.tile b{display:block;font-family:var(--font-display);font-size:1.5rem;font-weight:700;line-height:1.1;
+.tile b{display:block;font-family:var(--font-display);font-size:1.55rem;font-weight:500;letter-spacing:-.02em;line-height:1.1;
 font-variant-numeric:tabular-nums;color:var(--text-primary)}
 .tile span{font-size:.82rem;color:var(--text-muted)}
 .tile.good b{color:var(--good)}.tile.warning b{color:var(--warning)}.tile.critical b{color:var(--critical)}
@@ -87,8 +87,8 @@ input,select,textarea{width:100%;padding:.55rem .8rem;margin:4px 0;border:1px so
 border-radius:var(--radius-sm);font:inherit;background:var(--surface);color:var(--text-primary)}
 input::placeholder,textarea::placeholder{color:var(--text-muted)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--ring);outline-offset:1px;border-color:var(--accent)}
-button{padding:.55rem 1.15rem;cursor:pointer;background:var(--ink);color:var(--ink-fg);border:none;
-border-radius:var(--radius-pill);font:inherit;font-weight:600;font-size:.92rem;transition:transform .06s ease}
+button{padding:.5rem 1rem;cursor:pointer;background:var(--ink);color:var(--ink-fg);border:none;
+border-radius:var(--radius-sm);font:inherit;font-weight:500;font-size:.87rem;transition:transform .06s ease}
 button:hover{background:var(--ink-hover)}
 button:active{transform:translateY(1px)}
 button:disabled{background:var(--border-strong);color:var(--text-muted);cursor:not-allowed;transform:none}
