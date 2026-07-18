@@ -2,6 +2,7 @@ import { resolveCategorical, tokensFor, expandToken } from "./normalize.js";
 import { deriveIntent } from "./intent.js";
 import { correctTokens } from "./spell.js";
 import { parseNumericLike } from "../ingest/normalize.js";
+import { paramName } from "../assistable/tool-def.js";
 
 const SENTINEL = (v) => v === "" || v === 0 || v === null || v === undefined;
 
@@ -21,7 +22,15 @@ function coerceNumber(v) {
 }
 
 function extractFilters(args, columns) {
-  const byName = Object.fromEntries(columns.map((c) => [c.name.toLowerCase(), c]));
+  // Index by the real column name AND by the sanitized name the tool schema
+  // advertises to the LLM ("Price per kg (£)" -> "Price_per_kg"), so filters
+  // still resolve for spreadsheets with punctuation in their headers.
+  const byName = {};
+  for (const c of columns) {
+    byName[c.name.toLowerCase()] = c;
+    const advertised = paramName(c.name).toLowerCase();
+    if (!(advertised in byName)) byName[advertised] = c;
+  }
   const raw = { ...(typeof args.filters === "object" && args.filters && !Array.isArray(args.filters) ? args.filters : {}) };
   for (const [k, v] of Object.entries(args)) {
     if (["query", "filters"].includes(k)) continue;
