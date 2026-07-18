@@ -70,7 +70,9 @@ test("weak text matches are labeled low-confidence and hedged", () => {
 test("voice hint lists the top two options on multi-match", async () => {
   const out = await call("s1", "sec", { query: "", filters: { model: "Tacoma" } }, "call-a");
   assert.equal(out.result_count, 2);
-  assert.match(out.speech_hint, /Best fit: a 2022 Toyota Tacoma at \$28,500; also a 2021 Toyota Tacoma at \$26,900\./);
+  // Phrase comes from the item title + its money column (no hardcoded car
+  // fields, no "a" article that reads wrong for non-vehicle businesses).
+  assert.match(out.speech_hint, /Best fit: 2022 Toyota Tacoma at \$28,500; also 2021 Toyota Tacoma at \$26,900\./);
 });
 
 test("conversation memory: 'what about the 2021?' inherits the Tacoma context", async () => {

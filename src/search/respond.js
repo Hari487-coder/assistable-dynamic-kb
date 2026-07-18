@@ -5,11 +5,33 @@ function trimItem(structured) {
   return Object.fromEntries(entries);
 }
 
-function money(n) { return typeof n === "number" && n >= 1000 ? `$${n.toLocaleString("en-US")}` : String(n); }
+// Currency comes from the column name when the business tells us ("price_per
+// _kg_gbp" -> £). Guessing $ for a UK scrap dealer is worse than useless.
+const CURRENCIES = [[/gbp|pound|sterling/i, "£"], [/eur/i, "€"], [/inr|rupee/i, "₹"], [/aud/i, "A$"], [/cad/i, "CA$"]];
+const MONEY_COL = /price|cost|rate|amount|fee|value|per_kg|per_lb|per_tonne/i;
 
+function money(n, key = "") {
+  if (typeof n !== "number") return String(n);
+  const symbol = CURRENCIES.find(([re]) => re.test(key))?.[1] ?? "$";
+  // Unit prices read as money ("£4.00"), big-ticket prices read as whole
+  // numbers ("$28,500") - saying "twenty-eight thousand five hundred point
+  // zero zero" on a call is worse than useless.
+  const opts = n < 1000 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 };
+  return `${symbol}${n.toLocaleString("en-US", opts)}`;
+}
+
+/**
+ * Name one result the way a person would say it. Data-driven, not
+ * domain-specific: the ingest-time title plus the most money-like number.
+ * (This used to read `item.year/make/model`, so every non-car business heard
+ * the literal fallback "a match".)
+ */
 function itemPhrase(item) {
-  const desc = [item.year, item.make, item.model].filter(Boolean).join(" ") || item.title || "match";
-  return `a ${desc}${item.price ? ` at ${money(item.price)}` : ""}`;
+  const label = item.title
+    || Object.entries(item).find(([, v]) => typeof v === "string" && v.trim())?.[1]
+    || "one option";
+  const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k));
+  return priced ? `${label} at ${money(priced[1], priced[0])}` : String(label);
 }
 
 function speechHint({ resultCount, items, alternatives, relaxations }) {
@@ -20,9 +42,7 @@ function speechHint({ resultCount, items, alternatives, relaxations }) {
     return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0])}${second}.`;
   }
   if (alternatives.length) {
-    const a = alternatives[0];
-    const desc = [a.year, a.make, a.model].filter(Boolean).join(" ") || a.title || "option";
-    return `No exact match, but the closest we have is a ${desc}${a.price ? ` at ${money(a.price)}` : ""}. ${relaxations[0] || ""}`.trim();
+    return `No exact match, but the closest we have is ${itemPhrase(alternatives[0])}. ${relaxations[0] || ""}`.trim();
   }
   return "Nothing in our current live data matches that. Offer to check related options or take a message.";
 }
@@ -69,10 +89,10 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
     relaxations: structured.relaxations,
     items,
     ...(alternatives.length ? { close_alternatives: alternatives } : {}),
+    // Speak from the DISPLAY items - they carry the title. Passing the raw
+    // structured payload was why every phrase collapsed to "a match".
     speech_hint: speechHint({
-      resultCount: structured.resultCount,
-      items: structured.items.map((i) => i.structured),
-      alternatives: structured.alternatives.map((i) => i.structured),
+      resultCount: structured.resultCount, items, alternatives,
       relaxations: structured.relaxations,
     }),
     guidance: "Data is live from the business's own system. If data_freshness is 'stale', say the info is from the last update. Never invent items not listed.",

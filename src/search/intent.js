@@ -36,6 +36,40 @@ function boundFilter(query, columns, re, op) {
   return col ? { col, op, value, note: `applied "${m[0].trim()}" from the question` } : null;
 }
 
+const RX_SPECIAL = /[.*+?^${}()|[\]\\]/g;
+const normalizePhrase = (s) => String(s).toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Recognise the tenant's OWN category values inside free text: "what's bright
+ * copper going for in london" -> grade="Bright Copper", area="London".
+ * Voice LLMs frequently pass the raw question with no typed filters, so
+ * without this the query degrades to loose keyword matching. Longest value
+ * wins per column, whole-word only, and each match is consumed so one word
+ * can't satisfy two columns.
+ */
+function matchCategoricals(query, columns) {
+  const filters = [];
+  let working = ` ${normalizePhrase(query)} `;
+  const cats = columns.filter((c) => c.kind === "categorical" && c.distincts?.length);
+  for (const col of cats) {
+    const byLength = [...col.distincts].sort((a, b) => String(b).length - String(a).length);
+    for (const value of byLength) {
+      const norm = normalizePhrase(value);
+      // 3+ chars: shorter values ("M", "XL") match noise words far too often.
+      if (norm.length < 3) continue;
+      const re = new RegExp(`(^| )${norm.replace(RX_SPECIAL, "\\$&")}( |$)`);
+      if (!re.test(working)) continue;
+      filters.push({
+        col: col.name, op: "cat", value, distincts: col.distincts,
+        note: `matched ${col.name} "${value}" from the question`,
+      });
+      working = working.replace(re, " ");
+      break;
+    }
+  }
+  return { filters, cleaned: working.trim() };
+}
+
 /**
  * deriveIntent(query, columns) ->
  *   { filters: [{col, op, value, note}], sort: {col, dir}|null, cleanedQuery }
@@ -81,7 +115,11 @@ export function deriveIntent(query, columns) {
     });
     q = q.replace(m[0], " ");
   }
-  return { filters, sort, cleanedQuery: q };
+  // Categoricals last: numbers, sorts and qualitative words are consumed
+  // first so their text can't be mistaken for a category value.
+  const cats = matchCategoricals(q, columns);
+  filters.push(...cats.filters);
+  return { filters, sort, cleanedQuery: cats.filters.length ? cats.cleaned : q };
 }
 
 const QUALITATIVE = [
