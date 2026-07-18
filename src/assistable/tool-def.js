@@ -17,7 +17,15 @@ export function buildToolDefinition(source, columnMeta, { baseUrl, secret }) {
     query: { type: "string", description: "What the customer is asking for, in plain words. Always provide it." },
   };
   const filterSummaries = [];
-  const categoricals = columnMeta.filter((c) => c.kind === "categorical" && (c.distincts?.length ?? 0) >= 2);
+  // A column of long prose (a description, a spec paragraph) is technically
+  // categorical when every row repeats one of N blurbs, but it is useless as a
+  // filter: nobody says a whole sentence to narrow a search, and offering it
+  // burns a slot a real filter needs. Keep label-sized values only.
+  const isLabelSized = (c) =>
+    c.distincts.reduce((sum, v) => sum + String(v).length, 0) / c.distincts.length <= 25;
+  const categoricals = columnMeta.filter(
+    (c) => c.kind === "categorical" && (c.distincts?.length ?? 0) >= 2 && isLabelSized(c)
+  );
   const numerics = columnMeta.filter((c) => c.kind === "numeric");
   let slots = MAX_FILTER_PARAMS;
   for (const c of categoricals) {

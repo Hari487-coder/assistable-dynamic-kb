@@ -6,6 +6,7 @@ import { inferColumnMeta, rowToItem } from "../src/ingest/normalize.js";
 import { deriveIntent } from "../src/search/intent.js";
 import { searchStructured } from "../src/search/structured.js";
 import { buildToolResponse } from "../src/search/respond.js";
+import { buildToolDefinition } from "../src/assistable/tool-def.js";
 
 // Reproduces the exact shape a real scrap-metal tenant reported: free-text
 // question, no typed filters from the LLM, GBP price column, long description
@@ -88,4 +89,23 @@ test("explicit LLM filters still win over anything derived from the text", () =>
   const r = searchStructured(db, source, { query: "bright copper in london", filters: { area: "Manchester" } });
   assert.equal(r.appliedFilters.area, "Manchester");
   assert.equal(r.items[0].structured.area, "Manchester");
+});
+
+// Both from the first real conversation transcript (Cooper / scrap copper).
+test("a word that names a column is not reported as 'not found in your data'", () => {
+  const r = searchStructured(db, source, { query: "bright copper price in london" });
+  assert.equal(r.resultCount, 1);
+  assert.ok(
+    !r.relaxations.some((n) => /ignored "price"/.test(n)),
+    'the owner has a price column; saying price is missing reads as a bug'
+  );
+});
+
+test("long prose columns are not offered as filter params", () => {
+  const def = buildToolDefinition({ id: "s1", name: "Scrap Prices" }, columns,
+    { baseUrl: "https://kb.test", secret: "s" });
+  const props = Object.keys(def.parameters.properties);
+  assert.ok(props.includes("grade") && props.includes("area"), "label-sized filters stay");
+  assert.ok(!props.includes("description"),
+    "a sentence-long column wastes a filter slot and confuses the model");
 });

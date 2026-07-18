@@ -204,7 +204,13 @@ export function searchStructured(db, source, args = {}) {
   if (res.rows.length) {
     if (intent.sort) relaxations.push(`sorted by ${intent.sort.col} ${intent.sort.dir === "desc" ? "high to low" : "low to high"}`);
     if (res.spellChanges) relaxations.push(`corrected spelling: ${res.spellChanges.join(", ")}`);
-    if (res.ignoredWords) relaxations.push(`ignored "${res.ignoredWords.join(" ")}" (not found in your data)`);
+    // Only report words the owner would agree are unknown. A word that names
+    // one of their columns ("price", "grade") is structural, not missing -
+    // reporting `ignored "price" (not found in your data)` next to a price
+    // column reads like a bug in the log.
+    const columnWords = new Set(columns.flatMap((c) => tokensFor(String(c.name).replace(/_/g, " "))));
+    const unknown = (res.ignoredWords ?? []).filter((w) => !columnWords.has(w));
+    if (unknown.length) relaxations.push(`ignored "${unknown.join(" ")}" (not found in your data)`);
     return { items: wrap(res.rows), resultCount: res.total, appliedFilters, relaxations, alternatives: [] };
   }
 
