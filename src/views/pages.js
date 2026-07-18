@@ -282,7 +282,40 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
 };
 
-export const sourceDetailPage = (source, runs, tool, calls, unanswered) => {
+const statTile = (value, label, tone = "") => `
+<div style="flex:1 1 8rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.8rem 1rem">
+<div style="font-family:var(--font-display);font-size:1.5rem;font-weight:700;line-height:1.1${tone ? `;color:var(--${tone})` : ""}">${esc(value)}</div>
+<div style="font-size:.82rem;color:var(--text-muted)">${esc(label)}</div></div>`;
+
+export const qualitySection = (q) => {
+  if (!q || q.total === 0) {
+    return `<h2>How well it's answering</h2>
+<p><small>No questions yet. Once your assistant starts using this data, you'll see here how
+many questions it answered, what it couldn't answer, and how fast.</small></p>`;
+  }
+  const smarts = [
+    q.qualitative && `understood vague wording like cheap or low miles ${q.qualitative}x`,
+    q.spell && `fixed misheard words ${q.spell}x`,
+    q.context && `remembered the conversation ${q.context}x`,
+    q.relaxed && `offered near-matches ${q.relaxed}x`,
+  ].filter(Boolean);
+  return `<h2>How well it's answering <small style="font-weight:400">- last ${esc(q.days)} days</small></h2>
+<div style="display:flex;gap:.7rem;flex-wrap:wrap;margin:.6rem 0">
+${statTile(q.total, "questions asked")}
+${statTile(`${q.helpedPct}%`, "got a useful answer", q.helpedPct >= 80 ? "good" : q.helpedPct >= 50 ? "warning" : "critical")}
+${statTile(q.noMatch, "we couldn't help", q.noMatch ? "warning" : "good")}
+${statTile(`${q.p95}ms`, "slowest 5% (1s budget)", "good")}
+</div>
+<p><small>${esc(q.answered)} answered exactly${q.alternatives ? `, ${esc(q.alternatives)} got the closest alternatives instead` : ""}${q.browse ? `, ${esc(q.browse)} were "what do you have?" browsing` : ""}.
+${smarts.length ? `Along the way it ${esc(smarts.join(", "))}.` : ""}</small></p>
+${q.unanswered.length ? `
+<h3 style="font-family:var(--font-display);font-size:1rem;margin:1.2rem 0 .3rem">Questions it couldn't answer</h3>
+<ul>${q.unanswered.map((u) => `<li>"${esc(u.query)}"${u.n > 1 ? ` - asked ${esc(u.n)}x` : ""}</li>`).join("")}</ul>
+<p><small>Usually this means the item isn't in your data yet. Add it and press Refresh -
+your assistant will know about it within seconds.</small></p>` : ""}`;
+};
+
+export const sourceDetailPage = (source, runs, tool, calls, quality) => {
   const lastError = runs.find((r) => r.error)?.error;
   const st = humanizeStatus(source, lastError);
   const attached = tool?.tool_id ? JSON.parse(tool.assistant_ids_json).length : 0;
@@ -317,6 +350,7 @@ async function tryIt(f){
 <p><small>Checks for changes ${source.schedule_minutes >= 1440 ? "once a day" : source.schedule_minutes >= 360 ? "every 6 hours" : "every hour"};
 next check ${esc(source.next_run_at ? timeAgo(source.next_run_at).replace(" ago", " from now").replace("just now", "any moment") : "-")}.
 A refresh never breaks live answers - the old data keeps serving until the new data is verified.</small></p>
+${qualitySection(quality)}
 <h2>What customers asked</h2>
 ${calls.length === 0 ? `<p><small>No questions yet - once your assistant starts using this, every question shows up here.</small></p>` : `
 <table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th></tr>
@@ -325,13 +359,6 @@ ${calls.map((c) => {
   try { q = JSON.parse(c.args_json).query || c.args_json; } catch { /* raw */ }
   return `<tr><td>${esc(timeAgo(c.ts))}</td><td>${esc(String(q).slice(0, 90))}</td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}ms</td></tr>`;
 }).join("")}</table>`}
-${unanswered.length ? `<h2>Questions we couldn't answer</h2><ul>
-${unanswered.map((u) => {
-  let q = u.args_json;
-  try { q = JSON.parse(u.args_json).query || u.args_json; } catch { /* raw */ }
-  return `<li>"${esc(String(q).slice(0, 120))}" - asked ${esc(u.n)}x</li>`;
-}).join("")}</ul>
-<p><small>Usually this means the item isn't in your data yet - add it and refresh.</small></p>` : ""}
 <details><summary style="cursor:pointer;font-weight:600;margin:1.5rem 0 .5rem">For developers: instant updates &amp; history</summary>
 <p>Push updates the moment something changes (live pricing, stock):</p>
 <pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\

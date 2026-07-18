@@ -92,7 +92,8 @@ function runQuery(db, source, filters, query, sort = null) {
   // evaluation; (2) filters applied to at most 500 candidate rowids. Evaluating
   // json_extract per FTS match was the remaining measured hotspot (~110ms CPU).
   // The 500-candidate cap is per-instance-single-business safe (self-hosted).
-  let tokens = tokensFor(query);
+  let ignoredWords = null;
+  const tokens = tokensFor(query);
   if (tokens.length) {
     const attempt = (toks) => {
       // Concept = the token OR its synonyms (parity with the text engine).
@@ -126,11 +127,19 @@ function runQuery(db, source, filters, query, sort = null) {
       }
     }
     if (found) return found;
+    // Words matched nothing. With no filters to fall back on this is a true
+    // dead end - return empty so the ladder labels it honestly. Returning the
+    // unfiltered set here would hand back arbitrary rows as "exact matches"
+    // ("do you have a submarine?" -> "Yes, a 2022 Tacoma"). Never do that.
+    if (!filters.length) return { rows: [], total: 0 };
+    // With filters present, the unmatched words were conversational noise
+    // ("any cheap cars") - the filters still answer, and we say what we dropped.
+    ignoredWords = tokens;
   }
-  // Stable rowid ordering: identical calls return identical rows (caching,
-  // retries, and screenshots all depend on determinism).
+  // Filter-only (or noise-only) query: the filtered set IS the answer.
+  // Stable rowid ordering keeps identical calls identical.
   const rows = db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} ORDER BY i.rowid LIMIT 5`).all(...baseParams);
-  return withTotal(rows);
+  return { ...withTotal(rows), ignoredWords };
 }
 
 export function searchStructured(db, source, args = {}) {
@@ -186,6 +195,7 @@ export function searchStructured(db, source, args = {}) {
   if (res.rows.length) {
     if (intent.sort) relaxations.push(`sorted by ${intent.sort.col} ${intent.sort.dir === "desc" ? "high to low" : "low to high"}`);
     if (res.spellChanges) relaxations.push(`corrected spelling: ${res.spellChanges.join(", ")}`);
+    if (res.ignoredWords) relaxations.push(`ignored "${res.ignoredWords.join(" ")}" (not found in your data)`);
     return { items: wrap(res.rows), resultCount: res.total, appliedFilters, relaxations, alternatives: [] };
   }
 

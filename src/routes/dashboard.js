@@ -9,6 +9,7 @@ import { ownedSource, ownedConnection } from "../tenant.js";
 import { encryptSecret, decryptSecret, newSecret } from "../crypto.js";
 import { runSync, rollbackSource } from "../sync/engine.js";
 import { buildToolDefinition } from "../assistable/tool-def.js";
+import { qualitySummary } from "../analytics/quality.js";
 import * as pages from "../views/pages.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -214,8 +215,8 @@ export function createDashboardRouter(deps) {
     const runs = db.prepare("SELECT * FROM sync_runs WHERE source_id=? ORDER BY started_at DESC LIMIT 10").all(source.id);
     const tool = db.prepare("SELECT * FROM tools WHERE source_id=?").get(source.id);
     const calls = db.prepare("SELECT * FROM tool_calls WHERE source_id=? ORDER BY ts DESC LIMIT 20").all(source.id);
-    const unanswered = db.prepare("SELECT args_json, count(*) n FROM tool_calls WHERE source_id=? AND result_count=0 GROUP BY args_json ORDER BY n DESC LIMIT 10").all(source.id);
-    res.send(pages.sourceDetailPage(source, runs, tool, calls, unanswered));
+    const quality = qualitySummary(db, { sourceId: source.id, days: 7 });
+    res.send(pages.sourceDetailPage(source, runs, tool, calls, quality));
   });
 
   const withOwned = (handler) => async (req, res) => {

@@ -4,6 +4,7 @@ import { searchStructured } from "../search/structured.js";
 import { searchText } from "../search/text.js";
 import { buildToolResponse } from "../search/respond.js";
 import { runSync } from "../sync/engine.js";
+import { classifyOutcome, callFlags } from "../analytics/quality.js";
 
 const DEADLINE_MS = 2500;
 const RATE_LIMIT_PER_MIN = 60;
@@ -159,9 +160,11 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       }
     }
     try {
-      db.prepare("INSERT INTO tool_calls (source_id,ts,args_json,result_count,relaxations,took_ms,ok) VALUES (?,?,?,?,?,?,?)")
+      db.prepare(`INSERT INTO tool_calls (source_id,ts,args_json,result_count,relaxations,took_ms,ok,outcome,flags)
+                  VALUES (?,?,?,?,?,?,?,?,?)`)
         .run(source.id, new Date().toISOString(), JSON.stringify(args).slice(0, 2000),
-             out.result_count ?? null, JSON.stringify(out.relaxations ?? []), Date.now() - started, out.ok ? 1 : 0);
+             out.result_count ?? null, JSON.stringify(out.relaxations ?? []), Date.now() - started,
+             out.ok ? 1 : 0, classifyOutcome(out), callFlags(out));
     } catch (err) {
       logger.error("tool_calls insert failed", { error: String(err) });
     }

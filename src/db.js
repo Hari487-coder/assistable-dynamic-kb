@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS tools (
 CREATE TABLE IF NOT EXISTS tool_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL,
   ts TEXT NOT NULL, args_json TEXT NOT NULL, result_count INTEGER,
-  relaxations TEXT, took_ms INTEGER, ok INTEGER NOT NULL
+  relaxations TEXT, took_ms INTEGER, ok INTEGER NOT NULL,
+  outcome TEXT, flags TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tool_calls_source ON tool_calls (source_id, ts DESC);
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -84,6 +85,9 @@ export function openDb(filePath) {
 function migrate(db) {
   const cols = db.prepare("PRAGMA table_info(sources)").all().map((c) => c.name);
   if (!cols.includes("push_secret")) db.exec("ALTER TABLE sources ADD COLUMN push_secret TEXT");
+  const callCols = db.prepare("PRAGMA table_info(tool_calls)").all().map((c) => c.name);
+  if (!callCols.includes("outcome")) db.exec("ALTER TABLE tool_calls ADD COLUMN outcome TEXT");
+  if (!callCols.includes("flags")) db.exec("ALTER TABLE tool_calls ADD COLUMN flags TEXT");
   // The type CHECK is baked into the table SQL; rebuild once to admit 'webtable'.
   const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sources'").get().sql;
   if (!tableSql.includes("webtable")) {
