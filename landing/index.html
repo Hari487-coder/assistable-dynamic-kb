@@ -3,117 +3,225 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Live KB — give your Assistable agents live data</title>
+<title>Live KB: give your Assistable agents live data</title>
+<meta name="description" content="A knowledge base you own, that your Assistable voice and chat agents query in real time. Free to run, self-hosted, answers in milliseconds.">
+<meta property="og:title" content="Live KB: give your Assistable agents live data">
+<meta property="og:description" content="Your AI agent, answering from inventory and prices that are current, not from a document someone uploaded last quarter.">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Daybreak — ported from the mortgage platform design system */
-:root{color-scheme:light;
+/* Daybreak tokens, shared with the portal so the product and the page that
+   sells it are visibly the same thing. Light and dark carry one hierarchy. */
+:root{color-scheme:light dark;
 --page-bg:#f6f6fb;--surface:#fff;--surface-sunken:#f0f0f7;--border:#eae9f3;--border-strong:#dbdaec;
 --text-primary:#191823;--text-secondary:#55536e;--text-muted:#737190;
---ink:#191823;--ink-hover:#2b2a3b;--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
+--ink:#191823;--ink-hover:#2b2a3b;--ink-fg:#fff;
+--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
 --good:#0c7d55;--good-tint:#e7f7f0;--good-tint-border:#c2e7d7;
 --warning:#a95f0b;--warning-tint:#fdf3e4;--warning-tint-border:#f2dcb6;
---radius-md:14px;--radius-lg:18px;--radius-xl:24px;--radius-pill:999px;
+--code-bg:#1b1a23;--code-fg:#ecebf3;--code-muted:#8f8ca6;
+--radius-md:14px;--radius-lg:18px;--radius-pill:999px;
 --shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
 --shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
---font-display:"Bricolage Grotesque",system-ui,sans-serif;
+--shadow-lg:0 32px 64px -20px rgba(52,48,120,.24),0 8px 24px -12px rgba(25,24,45,.12);
+--font-body:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--font-display:"Bricolage Grotesque",var(--font-body);
+--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 --hero-sky:radial-gradient(64rem 30rem at 50% -8rem,rgba(255,186,145,.5),transparent 62%),
 linear-gradient(180deg,#fff7f1 0%,#f4efff 30%,#e5ddff 55%,#cfc2ff 80%,#f6f6fb 100%)}
+@media (prefers-color-scheme:dark){:root{
+--page-bg:#131219;--surface:#1b1a23;--surface-sunken:#232230;--border:#2c2a38;--border-strong:#3b3949;
+--text-primary:#ecebf3;--text-secondary:#a8a5bb;--text-muted:#837f97;
+--ink:#e9e7f5;--ink-hover:#fff;--ink-fg:#17161f;
+--accent:#8b8af0;--accent-strong:#a9a8f8;--accent-tint:#26243a;--accent-tint-border:#393657;
+--good:#5fd3a3;--good-tint:#14291f;--good-tint-border:#245840;
+--warning:#e2a44f;--warning-tint:#2b2113;--warning-tint-border:#5a4321;
+--code-bg:#0f0e15;--code-fg:#ecebf3;--code-muted:#7d7a93;
+--shadow-sm:0 1px 2px rgba(0,0,0,.3),0 4px 14px -6px rgba(0,0,0,.45);
+--shadow-md:0 6px 26px -8px rgba(0,0,0,.55),0 2px 8px -4px rgba(0,0,0,.4);
+--shadow-lg:0 32px 64px -20px rgba(0,0,0,.7),0 8px 24px -12px rgba(0,0,0,.5);
+--hero-sky:radial-gradient(64rem 30rem at 50% -10rem,rgba(129,90,255,.30),transparent 60%),
+linear-gradient(180deg,#1d1826 0%,#1a1726 34%,#171522 62%,#131219 100%)}}
 *{box-sizing:border-box}
-body{font:16px/1.6 Inter,system-ui,sans-serif;margin:0;color:var(--text-primary);background:var(--page-bg)}
-.hero{background:var(--hero-sky);padding:4.5rem 1.25rem 5rem;text-align:center}
-.hero .badge{display:inline-block;background:rgba(255,255,255,.7);border:1px solid var(--accent-tint-border);
-color:var(--accent-strong);font-weight:600;font-size:.85rem;padding:.3rem .9rem;border-radius:var(--radius-pill);margin-bottom:1.25rem}
-h1{font-family:var(--font-display);font-weight:700;font-size:clamp(2.1rem,5vw,3.1rem);line-height:1.12;margin:0 auto .8rem;max-width:17ch}
-.sub{color:var(--text-secondary);font-size:1.12rem;max-width:44ch;margin:0 auto 2rem}
-.cta{display:inline-block;padding:.85rem 1.6rem;border-radius:var(--radius-pill);background:var(--ink);
-color:#fff;text-decoration:none;font-weight:600;box-shadow:var(--shadow-md)}
+body{font:16px/1.6 var(--font-body);margin:0;color:var(--text-primary);background:var(--page-bg)}
+.wrap{max-width:780px;margin:0 auto;padding:0 1.25rem}
+
+/* Hero: badge, headline, one sentence, two actions. Nothing else lives here. */
+.hero{background:var(--hero-sky);padding:4rem 1.25rem 4.5rem;text-align:center}
+.badge{display:inline-block;background:var(--surface);border:1px solid var(--accent-tint-border);
+color:var(--accent-strong);font-weight:600;font-size:.82rem;padding:.3rem .9rem;
+border-radius:var(--radius-pill);margin-bottom:1.1rem;box-shadow:var(--shadow-sm)}
+h1{font-family:var(--font-display);font-weight:700;font-size:clamp(2rem,5vw,2.9rem);
+line-height:1.12;margin:0 auto .7rem;max-width:16ch;letter-spacing:-.02em}
+.sub{color:var(--text-secondary);font-size:1.08rem;max-width:42ch;margin:0 auto 1.8rem}
+.cta{display:inline-block;padding:.8rem 1.5rem;border-radius:var(--radius-pill);background:var(--ink);
+color:var(--ink-fg);text-decoration:none;font-weight:600;box-shadow:var(--shadow-md);
+transition:transform .1s ease}
 .cta:hover{background:var(--ink-hover)}
-.cta.alt{background:rgba(255,255,255,.75);color:var(--accent-strong);border:1px solid var(--accent-tint-border);box-shadow:none;margin-left:.5rem}
-.wrap{max-width:780px;margin:-2.5rem auto 0;padding:0 1.25rem 4rem}
-.step{display:flex;gap:1.1rem;margin:1.1rem 0;padding:1.4rem;border:1px solid var(--border);
-border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm)}
-.num{flex:none;width:2.1rem;height:2.1rem;border-radius:50%;background:var(--accent-tint);
-border:1px solid var(--accent-tint-border);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;
-font-weight:700;font-family:var(--font-display)}
-.step h2{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:.1rem 0 .4rem}
-.step p{margin:.25rem 0;color:var(--text-secondary)}
+.cta:active{transform:translateY(1px)}
+.cta.alt{background:var(--surface);color:var(--accent-strong);border:1px solid var(--accent-tint-border);
+box-shadow:var(--shadow-sm);margin-left:.4rem}
+
+h2{font-family:var(--font-display);font-weight:600;font-size:1.35rem;margin:0 0 .5rem;letter-spacing:-.01em}
+p{color:var(--text-secondary);margin:.5rem 0}
+section{padding:3rem 0;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+
+/* Proof strip: sits under the hero, never inside it. */
+.proof{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;padding:1.6rem 1.25rem 0}
+.proof span{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-pill);
+padding:.4rem 1rem;font-size:.9rem;color:var(--text-secondary);box-shadow:var(--shadow-sm)}
+.proof b{font-family:var(--font-mono);color:var(--good);font-weight:500;font-variant-numeric:tabular-nums}
+
+/* The real artifact: what the agent actually receives. Not a mock. */
+.exchange{display:grid;gap:.9rem}
+.said{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+padding:.9rem 1.1rem;box-shadow:var(--shadow-sm)}
+.said .who{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:600}
+.said p{color:var(--text-primary);margin:.25rem 0 0;font-size:1.02rem}
+pre{background:var(--code-bg);color:var(--code-fg);border-radius:var(--radius-lg);padding:1rem 1.1rem;
+overflow-x:auto;font-family:var(--font-mono);font-size:.82rem;line-height:1.55;margin:0;
+box-shadow:var(--shadow-lg)}
+pre .k{color:var(--code-muted)}
+pre .v{color:#8ee3b8}
+pre .n{color:#a9a8f8}
+
+/* Steps: one card, one list. Numbers because it is genuinely a sequence. */
+.steps{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+padding:1.4rem 1.6rem;box-shadow:var(--shadow-sm);counter-reset:s;list-style:none;margin:0}
+.steps li{counter-increment:s;position:relative;padding:0 0 1.1rem 2.6rem}
+.steps li:last-child{padding-bottom:0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:1.7rem;height:1.7rem;
+background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);
+border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.86rem}
+.steps b{color:var(--text-primary);display:block}
+.steps span{color:var(--text-secondary);font-size:.95rem}
+
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;padding:.6rem .5rem;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:.76rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:600}
+tbody tr:last-child td{border-bottom:none}
+td:first-child{color:var(--text-primary);font-weight:500;width:9rem}
+.was{color:var(--text-muted)}
+.now{color:var(--text-primary)}
+.scroller{overflow-x:auto}
+
 .note{background:var(--warning-tint);border:1px solid var(--warning-tint-border);border-radius:var(--radius-md);
-padding:.85rem 1.1rem;margin:2rem 0;color:var(--warning);font-size:.95rem}
-.proof{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:2.25rem}
-.proof span{background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:var(--radius-pill);
-padding:.35rem 1rem;font-size:.88rem;color:var(--text-secondary);font-weight:500}
-.proof b{font-family:"JetBrains Mono",monospace;color:var(--good);font-weight:500}
-.faq{margin-top:3rem;border-top:1px solid var(--border);padding-top:1.5rem}
-.faq h3{font-family:var(--font-display);font-size:1.02rem;margin:1.1rem 0 .25rem}
-.faq p{color:var(--text-secondary);margin:.25rem 0}
-code{font-family:"JetBrains Mono",monospace;background:var(--surface-sunken);padding:.1rem .4rem;border-radius:6px;font-size:.88em}
+padding:.9rem 1.1rem;color:var(--warning);font-size:.95rem}
+.faq h3{font-family:var(--font-display);font-size:1rem;margin:1.3rem 0 .2rem;color:var(--text-primary)}
+code{font-family:var(--font-mono);font-size:.86em;background:var(--surface-sunken);padding:.12rem .4rem;border-radius:6px}
+a{color:var(--accent-strong)}
+footer{padding:2rem 0 4rem;color:var(--text-muted);font-size:.88rem}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:560px){
+.hero{padding:3rem 1.25rem 3.5rem}
+.cta{display:block;margin:0 0 .6rem}.cta.alt{margin-left:0}
+.steps{padding:1.2rem 1.1rem}
+td:first-child{width:auto}
+}
 </style>
 </head>
 <body>
-<div class="hero">
-<span class="badge">Free · self-hosted · voice + chat</span>
-<h1>Your AI agent, with live data.</h1>
-<p class="sub">Live KB is a knowledge base you own, that your Assistable agents query
-in real time — inventory, products, prices, availability. Answers in
-milliseconds, on phone calls and in chat.</p>
-<a class="cta" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy my Live KB — free</a>
-<a class="cta alt" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">View on GitHub</a>
+
+<header class="hero">
+  <span class="badge">Free, self-hosted, voice and chat</span>
+  <h1>Your AI agent, with live data.</h1>
+  <p class="sub">A knowledge base you own, that your Assistable agents query mid-conversation.
+  Inventory, prices, availability: current, not last quarter's upload.</p>
+  <a class="cta" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy free</a>
+  <a class="cta alt" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">Read the docs</a>
+</header>
+
 <div class="proof">
-<span>Lookups in <b>~30-60ms</b></span>
-<span>Real filters: <b>price ≤ $30k</b>, not vector guesses</span>
-<span>Never says nothing — offers closest matches</span>
-</div>
+  <span>Lookups in <b>16ms</b></span>
+  <span>Real filters, not similarity guesses</span>
+  <span>Says "I don't have that" when it doesn't</span>
 </div>
 
 <div class="wrap">
-<div class="step"><div class="num">1</div><div>
-<h2>Create a free Render account &amp; deploy</h2>
-<p>One click. Sign in with Google or GitHub — Render hosts your personal
-instance for free with a secure HTTPS address. Nothing to configure: the
-encryption key generates itself, the URL is auto-detected.</p>
-<p><b>Just signed up?</b> Render sometimes drops you on an empty dashboard after
-account creation — come back here and click the deploy button once more while
-logged in; you'll see a "New Blueprint" screen with everything pre-filled.
-Name it, click <b>Deploy Blueprint</b>, and wait ~2-3 minutes.</p>
-</div></div>
 
-<div class="step"><div class="num">2</div><div>
-<h2>Open your new Live KB and create your account</h2>
-<p>When Render finishes (~2 minutes), open your instance's URL. The first
-account becomes the owner and sign-ups close automatically — it's yours alone,
-and so is the data: everything lives in one file on your instance.</p>
-</div></div>
+<section>
+  <h2>A caller asks. Your agent checks. It answers.</h2>
+  <p>This is the actual exchange, not an illustration. The middle block is what your
+  assistant receives from your own data while the caller is still on the line.</p>
+  <div class="exchange">
+    <div class="said"><span class="who">Caller</span>
+      <p>Do you have a 2022 Tacoma under thirty thousand?</p></div>
+<pre><span class="k">"result_count"</span>: <span class="n">1</span>,
+<span class="k">"as_of"</span>: <span class="v">"2026-07-18T09:04:11Z"</span>,
+<span class="k">"data_freshness"</span>: <span class="v">"fresh"</span>,
+<span class="k">"applied_filters"</span>: { <span class="k">"model"</span>: <span class="v">"Tacoma"</span>, <span class="k">"year"</span>: <span class="n">2022</span>, <span class="k">"price_max"</span>: <span class="n">30000</span> },
+<span class="k">"items"</span>: [{ <span class="k">"title"</span>: <span class="v">"2022 Toyota Tacoma"</span>, <span class="k">"price"</span>: <span class="n">28500</span>,
+            <span class="k">"mileage"</span>: <span class="n">31000</span>, <span class="k">"color"</span>: <span class="v">"Silver"</span>, <span class="k">"vin"</span>: <span class="v">"VIN001"</span> }],
+<span class="k">"speech_hint"</span>: <span class="v">"Yes, we have one match: 2022 Toyota Tacoma at $28,500."</span>,
+<span class="k">"took_ms"</span>: <span class="n">2</span></pre>
+    <div class="said"><span class="who">Your agent, out loud</span>
+      <p>Yes, we have one: a 2022 Tacoma, silver, thirty one thousand miles, at twenty eight five.</p></div>
+  </div>
+</section>
 
-<div class="step"><div class="num">3</div><div>
-<h2>Follow the in-app setup</h2>
-<p>Paste your Assistable API key (it needs only <code>assistants:list</code>,
-<code>tools:create</code>, <code>tools:update</code> — nothing else), add your
-data (CSV, feed, website, or database), tick your assistants — the tool is
-created in your Assistable account automatically. Paste one paragraph into
-your assistant's prompt, test it live on the same page, done.</p>
-</div></div>
+<section>
+  <h2>Why not just upload a document?</h2>
+  <div class="scroller">
+  <table>
+    <thead><tr><th>When a caller asks</th><th>Uploaded document</th><th>Live KB</th></tr></thead>
+    <tbody>
+      <tr><td>"Under $30k?"</td><td class="was">Matches text that looks similar</td><td class="now">Filters the number</td></tr>
+      <tr><td>"How many?"</td><td class="was">Cannot count</td><td class="now">Exact total</td></tr>
+      <tr><td>Price changed today</td><td class="was">Answers from the old upload</td><td class="now">Answers from today</td></tr>
+      <tr><td>You don't stock it</td><td class="was">Offers the closest text</td><td class="now">Says so, offers alternatives</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
 
-<p class="note"><b>Free-tier note:</b> Render's free plan sleeps after 15 idle
-minutes and its disk resets on redeploys — great for trying it out. For real
-customer traffic, the always-free VM path (one command, permanent disk) in the
-self-hosting guide is the recommended $0 production home.</p>
+<section>
+  <h2>Running in about five minutes</h2>
+  <ol class="steps">
+    <li><b>Deploy it.</b><span>One click creates your own instance on Render's free plan.
+    Nothing to configure: the encryption key generates itself and the address is detected.</span></li>
+    <li><b>Claim it.</b><span>Open your instance and create the first account. Sign-ups then
+    close automatically, so it is yours alone, and so is the data.</span></li>
+    <li><b>Connect your data.</b><span>Paste your Assistable key, add a spreadsheet, feed,
+    website or database, tick which assistants get it. The tool is created for you.</span></li>
+  </ol>
+  <p style="margin-top:1rem">Then ask it something only your data knows, and watch the
+  question appear in your query log seconds later.</p>
+</section>
 
-<div class="faq">
-<h3>What accounts do I need?</h3>
-<p>Two: Render (free, hosts your instance) and your existing Assistable
-account (for the API key). The VM option swaps Render for Oracle Cloud.</p>
-<h3>Does it work on phone calls?</h3>
-<p>Yes — the same tool serves voice and chat automatically, and every answer
-includes a ready-to-speak summary the voice agent reads aloud.</p>
-<h3>What data can I connect?</h3>
-<p>CSV uploads, feed URLs (JSON/CSV/XML — every DMS and store platform can
-export one), whole websites, and read-only Postgres/Supabase.</p>
-<h3>What does it cost?</h3>
-<p>Nothing. No paid APIs, no paid database, free hosting tiers. The zero-cost
-design is also why it's fast — a lookup never leaves your instance.</p>
-</div>
+<section>
+  <p class="note"><b>About the free plan.</b> Render's free tier sleeps after fifteen idle
+  minutes and wipes its disk on redeploys, which is fine while you are trying it. For real
+  customer calls, the always-free VM path in the docs is one command and keeps its data.</p>
+</section>
+
+<section class="faq">
+  <h2>Questions</h2>
+  <h3>What do I need before I start?</h3>
+  <p>Two accounts: Render, which is free and hosts your instance, and the Assistable
+  account you already have. Nothing else, and no card.</p>
+  <h3>What access does it need to my Assistable account?</h3>
+  <p>Four permissions, and it asks for no others: <code>assistants:list</code>,
+  <code>tools:create</code>, <code>tools:update</code>, and optionally
+  <code>tools:delete</code> for cleanup. It never touches your contacts, calls or billing.</p>
+  <h3>Does it work on phone calls?</h3>
+  <p>Yes. The same tool serves voice and chat, and every answer carries a ready-to-speak
+  sentence so the agent reads rather than improvises.</p>
+  <h3>What can I connect?</h3>
+  <p>Spreadsheet uploads, feed URLs in JSON, CSV or XML, a price table on one of your own
+  web pages, your whole website, or a read-only Postgres database.</p>
+  <h3>What does it cost to run?</h3>
+  <p>Nothing. No paid APIs, no database bill, no vector store. That constraint is also why
+  it is fast: a lookup never leaves your instance.</p>
+</section>
+
+<footer>
+  Live KB is open source. <a href="https://github.com/Hari487-coder/assistable-dynamic-kb">Read the code</a>,
+  run it yourself, change what you like.
+</footer>
+
 </div>
 </body>
 </html>
