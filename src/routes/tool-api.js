@@ -9,9 +9,27 @@ const DEADLINE_MS = 2500;
 const RATE_LIMIT_PER_MIN = 60;
 const PUSH_LIMIT_PER_MIN = 12;
 
+// Conversation memory: no static KB can do this. Keyed by the platform's
+// call_control_id header (call id on voice, conversation id on chat), it lets
+// an anaphoric follow-up - "what about the 2021?" - inherit the filters the
+// caller established moments ago. Deliberately conservative: only queries that
+// LOOK like follow-ups carry context, explicit filters always win, and every
+// carried filter is disclosed in `relaxations`.
+const CONV_TTL_MS = 10 * 60_000;
+const CONV_MAX = 1000;
+const ANAPHORA_RE = /\b(?:what|how)\s+about\b|^\s*and\b|\bthe\s+(?:19[5-9]\d|20[0-4]\d|other|cheaper|cheapest|newer|newest|older|first|second)\b|\bthat\s+one\b|\binstead\b/i;
+
+function convSweep(mem) {
+  if (mem.size <= CONV_MAX) return;
+  const cutoff = Date.now() - CONV_TTL_MS;
+  for (const [k, v] of mem) if (v.ts < cutoff) mem.delete(k);
+  while (mem.size > CONV_MAX) mem.delete(mem.keys().next().value);
+}
+
 export function createToolApiRouter({ db, logger, config, connectors }) {
   const router = Router();
   const buckets = new Map(); // `${kind}:${sourceId}` -> {windowStart, count}
+  const convMem = new Map(); // `${sourceId}:${callId}` -> {filters, ts}
 
   const softError = (error, hint) => ({ ok: false, error, speech_hint: hint });
 
@@ -81,6 +99,9 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
     const body = req.body || {};
     const args = body.args && (body.meta_data || body.metadata || body.call) ? body.args : body;
 
+    const callId = req.get("call_control_id") || body.call?.call_id || null;
+    const convKey = callId ? `${source.id}:${callId}` : null;
+
     let out;
     try {
       if (!source.active_batch_id) {
@@ -88,7 +109,25 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       } else if (source.type === "website") {
         out = buildToolResponse({ source, textResult: searchText(db, source, args.query), args, tookMs: Date.now() - started });
       } else {
-        const structured = searchStructured(db, source, args);
+        let structured = searchStructured(db, source, args);
+        // Anaphoric follow-up: re-run with the call's earlier filters filled in
+        // (current filters win on any column they share).
+        const mem = convKey ? convMem.get(convKey) : null;
+        if (mem && Date.now() - mem.ts < CONV_TTL_MS && ANAPHORA_RE.test(String(args.query || ""))) {
+          const carried = Object.fromEntries(Object.entries(mem.filters)
+            .filter(([k]) => !(k in structured.appliedFilters) && !(`${k.replace(/_(min|max)$/, "")}` in structured.appliedFilters)));
+          if (Object.keys(carried).length) {
+            const merged = searchStructured(db, source, { ...args, filters: { ...carried, ...(args.filters || {}), ...structured.appliedFilters } });
+            if (merged.resultCount > 0 || merged.alternatives.length > 0) {
+              merged.relaxations.push(`carried from earlier in this conversation: ${Object.entries(carried).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+              structured = merged;
+            }
+          }
+        }
+        if (convKey && Object.keys(structured.appliedFilters).length) {
+          convMem.set(convKey, { filters: structured.appliedFilters, ts: Date.now() });
+          convSweep(convMem);
+        }
         out = buildToolResponse({ source, structured, args, tookMs: Date.now() - started });
       }
       if (Date.now() - started > DEADLINE_MS) {

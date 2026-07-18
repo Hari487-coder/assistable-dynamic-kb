@@ -17,6 +17,32 @@ export function tokensFor(query) {
     .filter((t) => t.length > 1 && !STOPWORDS.has(t)).slice(0, 6);
 }
 
+// Deterministic synonym groups for the vocabulary gap embeddings usually cover:
+// a caller says "fix", the site says "repair". Each group becomes an OR-clause
+// inside the AND match, so precision survives while recall widens.
+const SYNONYM_GROUPS = [
+  ["fix", "repair", "service"],
+  ["price", "prices", "pricing", "cost", "costs", "rate", "rates", "fee", "fees", "charge"],
+  ["hours", "open", "opening", "closed", "schedule"],
+  ["phone", "call", "contact", "reach"],
+  ["warranty", "guarantee", "guaranteed"],
+  ["return", "returns", "refund", "refunds", "exchange"],
+  ["appointment", "appointments", "booking", "book", "reserve"],
+  ["delivery", "deliver", "shipping", "ship", "shipped"],
+  ["cancel", "cancellation", "cancelling"],
+  ["payment", "pay", "financing", "finance", "installments"],
+  ["cheap", "cheapest", "affordable", "budget"],
+  ["buy", "purchase", "sell", "selling"],
+  ["stock", "available", "availability", "inventory"],
+];
+const SYNONYMS = new Map();
+for (const group of SYNONYM_GROUPS) for (const word of group) SYNONYMS.set(word, group);
+
+/** A token's OR-expansion group (itself included), for FTS match construction. */
+export function expandToken(token) {
+  return SYNONYMS.get(token) ?? [token];
+}
+
 export function editDistance(a, b) {
   a = normalizeToken(a); b = normalizeToken(b);
   const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);

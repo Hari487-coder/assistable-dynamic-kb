@@ -7,14 +7,17 @@ function trimItem(structured) {
 
 function money(n) { return typeof n === "number" && n >= 1000 ? `$${n.toLocaleString("en-US")}` : String(n); }
 
+function itemPhrase(item) {
+  const desc = [item.year, item.make, item.model].filter(Boolean).join(" ") || item.title || "match";
+  return `a ${desc}${item.price ? ` at ${money(item.price)}` : ""}`;
+}
+
 function speechHint({ resultCount, items, alternatives, relaxations }) {
   if (resultCount > 0) {
-    const first = items[0];
-    const desc = [first.year, first.make, first.model].filter(Boolean).join(" ") || first.title || "match";
-    const price = first.price ? ` at ${money(first.price)}` : "";
-    return resultCount === 1
-      ? `Yes - we have one match: a ${desc}${price}.`
-      : `Yes - ${resultCount} matches. Best fit: a ${desc}${price}.`;
+    if (resultCount === 1) return `Yes - we have one match: ${itemPhrase(items[0])}.`;
+    // Voice callers decide fastest hearing the top two options, not just one.
+    const second = items[1] ? `; also ${itemPhrase(items[1])}` : "";
+    return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0])}${second}.`;
   }
   if (alternatives.length) {
     const a = alternatives[0];
@@ -31,13 +34,17 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
     data_freshness: source.last_sync_at && Date.now() - Date.parse(source.last_sync_at) < 2 * source.schedule_minutes * 60_000 ? "fresh" : "stale",
   };
   if (textResult) {
+    const weak = textResult.matchQuality === "weak";
     return {
       ...base,
       result_count: textResult.resultCount,
+      answerable: textResult.resultCount > 0 && !weak,
+      confidence: textResult.resultCount === 0 ? "none" : weak ? "low" : "high",
       items: textResult.items,
       speech_hint: textResult.resultCount
-        ? `Found it: ${textResult.items[0].snippet.slice(0, 140)}`
+        ? `${weak ? "This might be related: " : "Found it: "}${textResult.items[0].snippet.slice(0, 140)}`
         : "I couldn't find that on the live site data. Offer to take a message.",
+      ...(weak ? { guidance: "Only a partial keyword match was found. Present it as possibly related, not as a definitive answer." } : {}),
       took_ms: tookMs,
     };
   }
