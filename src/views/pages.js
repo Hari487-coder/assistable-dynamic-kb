@@ -6,26 +6,47 @@ export function layoutPage(title, body) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Daybreak tokens - ported from the mortgage platform design system */
-:root{color-scheme:light;
+/* Daybreak tokens (from the mortgage platform), extended with a dark set.
+   One accent (iris) across the whole app; one radius scale; light and dark
+   are the SAME hierarchy, not two different designs. */
+:root{color-scheme:light dark;
 --page-bg:#f6f6fb;--surface:#fff;--surface-sunken:#f0f0f7;--border:#eae9f3;--border-strong:#dbdaec;
 --ring:rgba(88,87,214,.26);--text-primary:#191823;--text-secondary:#55536e;--text-muted:#737190;
---ink:#191823;--ink-hover:#2b2a3b;--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
+--ink:#191823;--ink-hover:#2b2a3b;--ink-fg:#fff;
+--accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
 --good:#0c7d55;--good-tint:#e7f7f0;--good-tint-border:#c2e7d7;
 --warning:#a95f0b;--warning-tint:#fdf3e4;--warning-tint-border:#f2dcb6;
 --critical:#cf3d51;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
 --radius-sm:10px;--radius-md:14px;--radius-lg:18px;--radius-pill:999px;
 --shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
 --shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
---font-display:"Bricolage Grotesque",system-ui,sans-serif;--font-mono:"JetBrains Mono",monospace}
+/* Brand faces load from Google; the stack behind them is what actually
+   renders if the instance is offline or firewalled, so it is a real stack,
+   not a bare fallback. */
+--font-body:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--font-display:"Bricolage Grotesque",var(--font-body);
+--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{
+--page-bg:#131219;--surface:#1b1a23;--surface-sunken:#232230;--border:#2c2a38;--border-strong:#3b3949;
+--ring:rgba(139,138,240,.38);--text-primary:#ecebf3;--text-secondary:#a8a5bb;--text-muted:#837f97;
+--ink:#e9e7f5;--ink-hover:#fff;--ink-fg:#17161f;
+--accent:#8b8af0;--accent-strong:#a9a8f8;--accent-tint:#26243a;--accent-tint-border:#393657;
+--good:#5fd3a3;--good-tint:#14291f;--good-tint-border:#245840;
+--warning:#e2a44f;--warning-tint:#2b2113;--warning-tint-border:#5a4321;
+--critical:#f0808f;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
+--shadow-sm:0 1px 2px rgba(0,0,0,.3),0 4px 14px -6px rgba(0,0,0,.45);
+--shadow-md:0 6px 26px -8px rgba(0,0,0,.55),0 2px 8px -4px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}
-body{font:15px/1.55 Inter,system-ui,sans-serif;margin:0;color:var(--text-primary);background:var(--page-bg)}
+body{font:15px/1.55 var(--font-body);margin:0;color:var(--text-primary);background:var(--page-bg)}
 .shell{max-width:880px;margin:0 auto;padding:1.25rem 1rem 4rem}
 nav{display:flex;align-items:center;gap:.25rem;background:var(--surface);border:1px solid var(--border);
-border-radius:var(--radius-pill);padding:.4rem .6rem;box-shadow:var(--shadow-sm);margin-bottom:2rem}
-nav .brand{font-family:var(--font-display);font-weight:700;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto}
+border-radius:var(--radius-pill);padding:.4rem .6rem;box-shadow:var(--shadow-sm);margin-bottom:2rem;
+overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav .brand{font-family:var(--font-display);font-weight:700;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto;white-space:nowrap}
 nav .brand em{color:var(--accent-strong);font-style:normal}
-nav a{color:var(--text-secondary);text-decoration:none;padding:.35rem .8rem;border-radius:var(--radius-pill);font-weight:500;font-size:.92rem}
+nav a{color:var(--text-secondary);text-decoration:none;padding:.35rem .8rem;border-radius:var(--radius-pill);
+font-weight:500;font-size:.92rem;white-space:nowrap}
 nav a:hover{background:var(--surface-sunken);color:var(--text-primary)}
 h1{font-family:var(--font-display);font-weight:700;font-size:1.7rem;line-height:1.2;margin:.2rem 0 .6rem}
 h2{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:2rem 0 .6rem}
@@ -39,41 +60,94 @@ padding:1rem 1.25rem 1rem 3.4rem;margin:.9rem 0;box-shadow:var(--shadow-sm);posi
 ol>li::before{content:counter(step);position:absolute;left:1rem;top:1.05rem;width:1.7rem;height:1.7rem;
 background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);
 border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:.9rem}
-.chip{padding:2px 10px;border-radius:var(--radius-pill);font-size:.75rem;font-weight:600;vertical-align:middle}
+.chip{padding:2px 10px;border-radius:var(--radius-pill);font-size:.75rem;font-weight:600;vertical-align:middle;
+white-space:nowrap}
 .chip.active{background:var(--good-tint);color:var(--good);border:1px solid var(--good-tint-border)}
 .chip.stale{background:var(--warning-tint);color:var(--warning);border:1px solid var(--warning-tint-border)}
 .chip.error{background:var(--critical-tint);color:var(--critical);border:1px solid var(--critical-tint-border)}
 .chip.syncing,.chip.never_synced{background:var(--surface-sunken);color:var(--text-muted);border:1px solid var(--border-strong)}
+/* Stat tiles: numbers are the content, so they get the display face and
+   tabular figures - a column of stats must never wobble. */
+.tiles{display:flex;gap:.7rem;flex-wrap:wrap;margin:.6rem 0}
+.tile{flex:1 1 8rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.8rem 1rem}
+.tile b{display:block;font-family:var(--font-display);font-size:1.5rem;font-weight:700;line-height:1.1;
+font-variant-numeric:tabular-nums;color:var(--text-primary)}
+.tile span{font-size:.82rem;color:var(--text-muted)}
+.tile.good b{color:var(--good)}.tile.warning b{color:var(--warning)}.tile.critical b{color:var(--critical)}
+/* Tables scroll rather than squash: a price the owner cannot read is worse
+   than a scrollbar. */
+.scroller{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--border);
 border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow-sm);font-size:.92rem}
 th{background:var(--surface-sunken);color:var(--text-muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
 td,th{border-bottom:1px solid var(--border);padding:.55rem .8rem;text-align:left}
+td{font-variant-numeric:tabular-nums}
 tr:last-child td{border-bottom:none}
 input,select,textarea{width:100%;padding:.55rem .8rem;margin:4px 0;border:1px solid var(--border-strong);
-border-radius:var(--radius-sm);font:inherit;background:var(--surface)}
+border-radius:var(--radius-sm);font:inherit;background:var(--surface);color:var(--text-primary)}
+input::placeholder,textarea::placeholder{color:var(--text-muted)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--ring);outline-offset:1px;border-color:var(--accent)}
-button{padding:.55rem 1.15rem;cursor:pointer;background:var(--ink);color:#fff;border:none;
-border-radius:var(--radius-pill);font:inherit;font-weight:600;font-size:.92rem}
-button:hover{background:var(--ink-hover)}button:disabled{background:var(--border-strong);cursor:not-allowed}
+button{padding:.55rem 1.15rem;cursor:pointer;background:var(--ink);color:var(--ink-fg);border:none;
+border-radius:var(--radius-pill);font:inherit;font-weight:600;font-size:.92rem;transition:transform .06s ease}
+button:hover{background:var(--ink-hover)}
+button:active{transform:translateY(1px)}
+button:disabled{background:var(--border-strong);color:var(--text-muted);cursor:not-allowed;transform:none}
 button.ghost,p>button,td button{background:var(--accent-tint);color:var(--accent-strong);border:1px solid var(--accent-tint-border)}
 button.ghost:hover,p>button:hover,td button:hover{background:var(--accent-tint-border)}
 code{font-family:var(--font-mono);font-size:.85em;background:var(--surface-sunken);padding:.12rem .4rem;border-radius:6px}
-pre{font-family:var(--font-mono);font-size:.82rem}
+pre{font-family:var(--font-mono);font-size:.82rem;overflow-x:auto}
 a{color:var(--accent-strong)}
 .err{color:var(--critical)}
 .warn{background:var(--warning-tint);border:1px solid var(--warning-tint-border);color:var(--warning);padding:.6rem .9rem;border-radius:var(--radius-sm)}
 small{color:var(--text-muted)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Work-in-progress feedback. Syncs take seconds; without this the owner
+   cannot tell a slow refresh from a dead button, and double-clicks it. */
+#bar{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent);transition:width .25s ease;z-index:9}
+body.busy #bar{width:75%}
+body.busy button{pointer-events:none;opacity:.55}
+body.busy{cursor:progress}
+#toast{position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%) translateY(1rem);opacity:0;
+pointer-events:none;max-width:min(30rem,92vw);background:var(--surface);color:var(--text-primary);
+border:1px solid var(--border-strong);border-left:3px solid var(--critical);border-radius:var(--radius-md);
+padding:.7rem 1rem;box-shadow:var(--shadow-md);font-size:.92rem;transition:opacity .18s ease,transform .18s ease;z-index:10}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.ok{border-left-color:var(--good)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:560px){
+.shell{padding:1rem .75rem 3rem}h1{font-size:1.42rem}h2{font-size:1.06rem}
+ol>li{padding:.9rem 1rem .9rem 3rem}
+.tile{flex:1 1 100%}
+table{font-size:.86rem}td,th{padding:.5rem .6rem}
+}
 </style></head>
-<body><div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a>
+<body><div id="bar"></div><div id="toast" role="status" aria-live="polite"></div>
+<div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a>
 <a href="#" onclick="api('/logout',{}).then(()=>location='/login');return false">Log out</a></nav>
 ${body}
 <script>
+let toastTimer;
+function toast(message, ok){
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.toggle('ok', !!ok);
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 6000);
+}
 async function api(path, body){
-  const r = await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-requested-with':'kb-bridge'},body:JSON.stringify(body)});
-  const out = await r.json().catch(()=>({ok:false,error:'HTTP '+r.status}));
-  if(!out.ok && out.error) alert(out.error);
-  return out;
+  document.body.classList.add('busy');
+  try {
+    const r = await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-requested-with':'kb-bridge'},body:JSON.stringify(body)});
+    const out = await r.json().catch(()=>({ok:false,error:'Something went wrong (HTTP '+r.status+'). Try again.'}));
+    if(!out.ok && out.error) toast(out.error);
+    return out;
+  } catch(err) {
+    toast("Couldn't reach your Live KB. Check the instance is running, then try again.");
+    return {ok:false,error:String(err)};
+  } finally {
+    document.body.classList.remove('busy');
+  }
 }
 function formJson(f){const o={};new FormData(f).forEach((v,k)=>{o[k]=v});return o}
 </script></div></body></html>`;
@@ -144,13 +218,13 @@ from it live, on calls and in chat.</p>
 <a href="/sources/new"><button>Connect your first data</button></a>
 </div>` : `
 <p><a href="/sources/new"><button class="ghost">+ Add more data</button></a></p>
-<table><tr><th>Name</th><th>Kind</th><th>Status</th><th>Updated</th></tr>
+<div class="scroller"><table><tr><th>Name</th><th>Kind</th><th>Status</th><th>Updated</th></tr>
 ${sources.map((s) => {
   const st = humanizeStatus(s);
   return `<tr><td><a href="/sources/${esc(s.id)}">${esc(s.name)}</a></td><td>${esc(TYPE_LABELS[s.type] ?? s.type)}</td>
 <td><span class="chip ${esc(st.tone)}">${esc(st.label)}</span></td><td>${esc(timeAgo(s.last_sync_at))}</td></tr>`;
 }).join("")}
-</table>`}`);
+</table></div>`}`);
 
 const TYPE_CARDS = [
   { value: "csv", title: "I have a spreadsheet or file", desc: "Upload a CSV export of your inventory, products, or price list. Works with Excel and Google Sheets exports." },
@@ -299,10 +373,8 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
 };
 
-const statTile = (value, label, tone = "") => `
-<div style="flex:1 1 8rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.8rem 1rem">
-<div style="font-family:var(--font-display);font-size:1.5rem;font-weight:700;line-height:1.1${tone ? `;color:var(--${tone})` : ""}">${esc(value)}</div>
-<div style="font-size:.82rem;color:var(--text-muted)">${esc(label)}</div></div>`;
+const statTile = (value, label, tone = "") =>
+  `<div class="tile${tone ? ` ${tone}` : ""}"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
 
 export const qualitySection = (q) => {
   if (!q || q.total === 0) {
@@ -317,7 +389,7 @@ many questions it answered, what it couldn't answer, and how fast.</small></p>`;
     q.relaxed && `offered near-matches ${q.relaxed}x`,
   ].filter(Boolean);
   return `<h2>How well it's answering <small style="font-weight:400">- last ${esc(q.days)} days</small></h2>
-<div style="display:flex;gap:.7rem;flex-wrap:wrap;margin:.6rem 0">
+<div class="tiles">
 ${statTile(q.total, "questions asked")}
 ${statTile(`${q.helpedPct}%`, "got a useful answer", q.helpedPct >= 80 ? "good" : q.helpedPct >= 50 ? "warning" : "critical")}
 ${statTile(q.noMatch, "we couldn't help", q.noMatch ? "warning" : "good")}
@@ -370,12 +442,12 @@ A refresh never breaks live answers - the old data keeps serving until the new d
 ${qualitySection(quality)}
 <h2>What customers asked</h2>
 ${calls.length === 0 ? `<p><small>No questions yet - once your assistant starts using this, every question shows up here.</small></p>` : `
-<table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th></tr>
+<div class="scroller"><table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th></tr>
 ${calls.map((c) => {
   let q = c.args_json;
   try { q = JSON.parse(c.args_json).query || c.args_json; } catch { /* raw */ }
   return `<tr><td>${esc(timeAgo(c.ts))}</td><td>${esc(String(q).slice(0, 90))}</td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}ms</td></tr>`;
-}).join("")}</table>`}
+}).join("")}</table></div>`}
 <details><summary style="cursor:pointer;font-weight:600;margin:1.5rem 0 .5rem">For developers: instant updates &amp; history</summary>
 <p>Push updates the moment something changes (live pricing, stock):</p>
 <pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
@@ -385,7 +457,7 @@ ${source.type === "csv" ? `<pre>curl -X POST -H "x-push-secret: ${esc(source.pus
   {your-instance-url}/api/push/${esc(source.id)}/content</pre>` : ""}
 <small>The push secret is separate from the tool secret - reads and writes never share a credential.</small>
 <h2>Sync history</h2>
-<table><tr><th>Started</th><th>Status</th><th>Items</th><th>Error</th></tr>
-${runs.map((r) => `<tr><td>${esc(r.started_at)}</td><td>${esc(r.status)}</td><td>${esc(r.items_count ?? "-")}</td><td>${esc(r.error ? humanizeError(r.error) : "")}</td></tr>`).join("")}</table>
+<div class="scroller"><table><tr><th>Started</th><th>Status</th><th>Items</th><th>Error</th></tr>
+${runs.map((r) => `<tr><td>${esc(r.started_at)}</td><td>${esc(r.status)}</td><td>${esc(r.items_count ?? "-")}</td><td>${esc(r.error ? humanizeError(r.error) : "")}</td></tr>`).join("")}</table></div>
 </details>`);
 };
