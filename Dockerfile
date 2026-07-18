@@ -1,5 +1,5 @@
-# Live KB — zero native deps (Node built-in SQLite), so this stays tiny.
-FROM node:22-alpine
+# Live KB — zero native deps (Node built-in SQLite; needs Node >= 23.4 unflagged).
+FROM node:24-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

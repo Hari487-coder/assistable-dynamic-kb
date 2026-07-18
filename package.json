@@ -2,7 +2,7 @@
   "name": "assistable-dynamic-kb",
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=22.5" },
+  "engines": { "node": ">=23.4" },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/"

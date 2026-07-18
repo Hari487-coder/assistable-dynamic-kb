@@ -14,8 +14,8 @@ KB_DOMAIN="${KB_DOMAIN:?Set KB_DOMAIN to your domain (DNS must point here)}"
 KB_REPO="${KB_REPO:-}"
 KB_DIR=/opt/live-kb
 
-echo "==> Installing Node 22 + Caddy"
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+echo "==> Installing Node 24 + Caddy (node:sqlite needs >= 23.4)"
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs debian-keyring debian-archive-keyring apt-transport-https curl
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
