@@ -10,13 +10,13 @@ export function layoutPage(title, body) {
    One accent (iris) across the whole app; one radius scale; light and dark
    are the SAME hierarchy, not two different designs. */
 :root{color-scheme:light dark;
---page-bg:#f6f6fb;--surface:#fff;--surface-sunken:#f0f0f7;--border:#eae9f3;--border-strong:#dbdaec;
---ring:rgba(88,87,214,.26);--text-primary:#191823;--text-secondary:#55536e;--text-muted:#737190;
---ink:#191823;--ink-hover:#2b2a3b;--ink-fg:#fff;
---accent:#5857d6;--accent-strong:#4f4ecb;--accent-tint:#ededfb;--accent-tint-border:#dcdbf6;
---good:#0c7d55;--good-tint:#e7f7f0;--good-tint-border:#c2e7d7;
---warning:#a95f0b;--warning-tint:#fdf3e4;--warning-tint-border:#f2dcb6;
---critical:#cf3d51;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
+--page-bg:#faf9ff;--surface:#fff;--surface-sunken:#f4f1fe;--border:#e9e5fb;--border-strong:#d6cff6;
+--ring:rgba(91,70,224,.3);--text-primary:#16141f;--text-secondary:#544f6b;--text-muted:#7c7794;
+--ink:#5b46e0;--ink-hover:#4a37c9;--ink-fg:#fff;
+--accent:#5b46e0;--accent-strong:#4a37c9;--accent-tint:#f2effe;--accent-tint-border:#ded6fb;
+--good:#0c7d55;--good-tint:#e9f7f1;--good-tint-border:#c2e7d7;
+--warning:#a35c0c;--warning-tint:#fdf4e6;--warning-tint-border:#f0dcb8;
+--critical:#c5364c;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
 --radius-sm:10px;--radius-md:14px;--radius-lg:18px;--radius-pill:999px;
 --shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
 --shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
@@ -27,10 +27,10 @@ export function layoutPage(title, body) {
 --font-display:"Bricolage Grotesque",var(--font-body);
 --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 @media (prefers-color-scheme:dark){:root{
---page-bg:#131219;--surface:#1b1a23;--surface-sunken:#232230;--border:#2c2a38;--border-strong:#3b3949;
---ring:rgba(139,138,240,.38);--text-primary:#ecebf3;--text-secondary:#a8a5bb;--text-muted:#837f97;
---ink:#e9e7f5;--ink-hover:#fff;--ink-fg:#17161f;
---accent:#8b8af0;--accent-strong:#a9a8f8;--accent-tint:#26243a;--accent-tint-border:#393657;
+--page-bg:#0f0d17;--surface:#171523;--surface-sunken:#1e1b2e;--border:#2a2540;--border-strong:#3a3358;
+--ring:rgba(139,124,240,.42);--text-primary:#efedf8;--text-secondary:#aaa4c4;--text-muted:#847da0;
+--ink:#8b7cf0;--ink-hover:#a294f7;--ink-fg:#12101d;
+--accent:#8b7cf0;--accent-strong:#a89bf8;--accent-tint:#221d3d;--accent-tint-border:#3a3163;
 --good:#5fd3a3;--good-tint:#14291f;--good-tint-border:#245840;
 --warning:#e2a44f;--warning-tint:#2b2113;--warning-tint-border:#5a4321;
 --critical:#f0808f;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
