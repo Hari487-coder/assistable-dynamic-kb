@@ -2,6 +2,8 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb)
 
+**Start here → [hari487-coder.github.io/assistable-dynamic-kb](https://hari487-coder.github.io/assistable-dynamic-kb/)** — the guided "deploy your own" page.
+
 A standalone multi-tenant portal that gives Assistable voice + chat agents
 **live data** through custom tools. Users sign up, connect their Assistable v3
 API key, add a dynamic source (CSV / feed URL / website / Postgres), and the
