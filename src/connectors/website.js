@@ -65,6 +65,10 @@ export async function crawlSiteItems(config, { fetchImpl = safeFetch, delayMs } 
     let res;
     try { res = await fetchImpl(norm, {}); } catch { continue; }
     if (res.status !== 200) continue;
+    // Same-origin links can point at PDFs/images; parsing binary as HTML
+    // yields junk chunks. Trust the content-type when the server sends one.
+    const ct = (typeof res.headers.get === "function" ? res.headers.get("content-type") : "") || "";
+    if (ct && !/html|text/i.test(ct)) continue;
     rows.push(...pageChunks(norm, res.text));
     if (depth < maxDepth) {
       const $ = cheerio.load(res.text);

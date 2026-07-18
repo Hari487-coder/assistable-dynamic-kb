@@ -1,0 +1,12 @@
+{"products":[
+  {"id":1,"title":"Classic Hoodie","product_type":"Hoodies","vendor":"Acme",
+   "variants":[
+     {"title":"Black / M","sku":"H-BLK-M","price":"49.00","inventory_quantity":12,"available":true},
+     {"title":"Black / L","sku":"H-BLK-L","price":"49.00","inventory_quantity":0,"available":false},
+     {"title":"Navy / M","sku":"H-NVY-M","price":"52.00","inventory_quantity":4,"available":true}
+   ]},
+  {"id":2,"title":"Logo Tee","product_type":"Tees","vendor":"Acme",
+   "variants":[
+     {"title":"White / S","sku":"T-WHT-S","price":"19.00","inventory_quantity":30,"available":true}
+   ]}
+]}

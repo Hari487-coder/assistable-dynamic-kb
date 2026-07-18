@@ -124,14 +124,16 @@ export const newSourcePage = (assistants, notConnected) => layoutPage("New sourc
 ${notConnected ? `<p class="warn">Connect your Assistable account first - the tool can't be created without it.</p>` : ""}
 <form onsubmit="submitSource(this);return false">
 <label>Name <input name="name" required maxlength="60"></label>
-<label>Type <select name="type" onchange="document.querySelectorAll('[data-cfg]').forEach(d=>d.style.display=d.dataset.cfg===this.value?'':'none')">
+<label>Type <select name="type" onchange="document.querySelectorAll('[data-cfg]').forEach(d=>{const on=d.dataset.cfg===this.value;d.style.display=on?'':'none';d.querySelectorAll('input').forEach(i=>i.disabled=!on)})">
 <option value="csv">CSV upload</option><option value="feed">Feed URL</option>
-<option value="website">Website</option><option value="database">Postgres / Supabase</option></select></label>
+<option value="website">Website (pages &amp; text)</option><option value="webtable">Price table on a web page</option>
+<option value="database">Postgres / Supabase</option></select></label>
 <div data-cfg="csv"><label>CSV file <input type="file" id="csvfile" accept=".csv"></label></div>
-<div data-cfg="feed" style="display:none"><label>Feed URL <input name="url" type="url"></label></div>
-<div data-cfg="website" style="display:none"><label>Site URL <input name="url" type="url"></label></div>
-<div data-cfg="database" style="display:none"><label>Connection string <input name="connection_string"></label>
-<label>Table or view <input name="table"></label></div>
+<div data-cfg="feed" style="display:none"><label>Feed URL <input name="url_feed" type="url" disabled></label></div>
+<div data-cfg="website" style="display:none"><label>Site URL <input name="url_site" type="url" disabled></label></div>
+<div data-cfg="webtable" style="display:none"><label>Page URL with the table (e.g. your prices page) <input name="url_table" type="url" disabled></label></div>
+<div data-cfg="database" style="display:none"><label>Connection string <input name="connection_string" disabled></label>
+<label>Table or view <input name="table" disabled></label></div>
 <label>Re-sync every <select name="schedule_minutes"><option value="1440">day</option>
 <option value="360">6 hours</option><option value="60">hour</option></select></label>
 <fieldset><legend>Attach to assistants</legend>
@@ -211,6 +213,17 @@ ${tool && tool.updated_at > tool.created_at ? `<p class="warn">Voice agents cach
 <button onclick="api('/sources/${esc(source.id)}/rollback',{}).then(()=>location.reload())">Roll back</button>
 <button onclick="confirm('Delete source and its Assistable tool?')&&api('/sources/${esc(source.id)}/delete',{}).then(()=>location='/sources')">Delete</button>
 </p>
+<h2>Live update API</h2>
+<p>For real-time data (live pricing, stock changes): call these from your own
+system the moment something changes - answers update in seconds, no schedule wait.</p>
+<p><b>Trigger a re-sync now</b> (any source type):</p>
+<pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
+  {your-instance-url}/api/push/${esc(source.id)}/refresh</pre>
+${source.type === "csv" ? `<p><b>Push replacement content directly</b> (CSV sources):</p>
+<pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
+  -H "content-type: text/csv" --data-binary @prices.csv \\
+  {your-instance-url}/api/push/${esc(source.id)}/content</pre>` : ""}
+<small>The push secret is separate from the tool secret - reads and writes never share a credential.</small>
 <h2>Sync history</h2>
 <table><tr><th>Started</th><th>Status</th><th>Items</th><th>Error</th></tr>
 ${runs.map((r) => `<tr><td>${esc(r.started_at)}</td><td>${esc(r.status)}</td><td>${esc(r.items_count ?? "-")}</td><td>${esc(r.error ?? "")}</td></tr>`).join("")}</table>

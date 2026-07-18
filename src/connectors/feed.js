@@ -25,6 +25,26 @@ function flatten(obj, prefix = "", out = {}) {
   return out;
 }
 
+// Ecommerce catalogs (Shopify products.json et al) nest sellable units inside
+// a parent: one product row with a `variants` array. Stock questions ("is the
+// black medium in stock?") need one row PER VARIANT, so explode the first
+// array-of-objects field into child rows that inherit the parent's fields.
+function explodeNested(rows) {
+  const out = [];
+  for (const row of rows) {
+    const nestedKey = Object.keys(row).find(
+      (k) => Array.isArray(row[k]) && row[k].length > 0 && typeof row[k][0] === "object" && row[k][0] !== null
+    );
+    if (!nestedKey) { out.push(row); continue; }
+    const { [nestedKey]: children, ...parent } = row;
+    for (const child of children) {
+      out.push({ ...parent, ...flatten(child, nestedKey.replace(/s$/, "")) });
+      if (out.length >= 50_000) return out;
+    }
+  }
+  return out;
+}
+
 export async function fetchFeedItems(config, { fetchImpl = safeFetch } = {}) {
   const headers = config.authHeader?.name ? { [config.authHeader.name]: config.authHeader.value } : {};
   const res = await fetchImpl(config.url, { headers, maxBytes: 20 * 1024 * 1024 });
@@ -44,5 +64,5 @@ export async function fetchFeedItems(config, { fetchImpl = safeFetch } = {}) {
   else if (format === "xml") rows = findArray(new XMLParser({ ignoreAttributes: false }).parse(body));
   else rows = parseCsvItems(body).rows;
   if (!rows || !rows.length) { const e = new Error("no rows found in feed"); e.permanent = true; throw e; }
-  return { rows: rows.map((r) => flatten(r)) };
+  return { rows: explodeNested(rows).map((r) => flatten(r)) };
 }

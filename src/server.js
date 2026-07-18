@@ -15,6 +15,7 @@ import { fetchFeedItems } from "./connectors/feed.js";
 import { parseCsvItems } from "./connectors/csv.js";
 import { crawlSiteItems } from "./connectors/website.js";
 import { fetchDbItems } from "./connectors/database.js";
+import { fetchWebTableRows } from "./connectors/webtable.js";
 import * as pages from "./views/pages.js";
 
 export const defaultConnectors = {
@@ -22,6 +23,7 @@ export const defaultConnectors = {
   csv: async (cfg) => parseCsvItems(cfg.csv_text),
   website: (cfg) => crawlSiteItems(cfg, { delayMs: 300 }),
   database: (cfg) => fetchDbItems(cfg),
+  webtable: (cfg) => fetchWebTableRows(cfg),
 };
 
 export function buildApp(deps) {
@@ -46,7 +48,7 @@ export function buildApp(deps) {
   app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true }));
   app.use(express.json({ limit: "256kb" }));
   app.use(cookieParser);
-  app.use(createToolApiRouter({ db, logger }));
+  app.use(createToolApiRouter({ db, logger, config, connectors }));
   app.use(createDashboardRouter({ db, config, logger, connectors, makeClient }));
   app.use((_req, res) => res.status(404).send(pages.layoutPage("Not found", "<p>Page not found.</p>")));
   app.use((err, _req, res, _next) => {

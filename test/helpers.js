@@ -13,15 +13,17 @@ export async function startTestApp() {
   const db = openDb(":memory:");
   const config = { encryptionKey: KEY, baseUrl: "http://test", dataDir: "./data", nodeEnv: "test", mockAssistable: true };
   const app = express();
+  const connectors = {
+    csv: async (cfg) => parseCsvItems(cfg.csv_text),
+    feed: async () => ({ rows: [] }), website: async () => ({ rows: [] }),
+    database: async () => ({ rows: [] }), webtable: async () => ({ rows: [] }),
+  };
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser);
-  app.use(createToolApiRouter({ db, logger: noopLog }));
+  app.use(createToolApiRouter({ db, logger: noopLog, config, connectors }));
   app.use(createDashboardRouter({
     db, config, logger: noopLog,
-    connectors: {
-      csv: async (cfg) => parseCsvItems(cfg.csv_text),
-      feed: async () => ({ rows: [] }), website: async () => ({ rows: [] }), database: async () => ({ rows: [] }),
-    },
+    connectors,
     makeClient: () => new AssistableClient({ apiKey: "x", mock: true, logger: noopLog }),
   }));
   const srv = app.listen(0);

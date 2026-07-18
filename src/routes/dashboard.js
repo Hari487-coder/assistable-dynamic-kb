@@ -14,10 +14,13 @@ import * as pages from "../views/pages.js";
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const SOURCE_BODY = z.object({
-  type: z.enum(["website", "feed", "csv", "database"]),
+  type: z.enum(["website", "feed", "csv", "database", "webtable"]),
   name: z.string().trim().min(1).max(60),
   schedule_minutes: z.coerce.number().int().min(15).max(10080).default(1440),
   url: z.string().url().optional(),
+  url_feed: z.string().url().optional(),
+  url_site: z.string().url().optional(),
+  url_table: z.string().url().optional(),
   csv_text: z.string().max(5 * 1024 * 1024).optional(),
   connection_string: z.string().max(500).optional(),
   table: z.string().max(63).optional(),
@@ -166,16 +169,17 @@ export function createDashboardRouter(deps) {
     const parsed = SOURCE_BODY.safeParse({ ...req.body, csv_text: req.file ? req.file.buffer.toString("utf8") : req.body?.csv_text });
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.issues[0].message });
     const b = parsed.data;
+    const url = b.url ?? b.url_feed ?? b.url_site ?? b.url_table;
     const cfg = b.type === "csv" ? { csv_text: b.csv_text }
       : b.type === "database" ? { connectionString: b.connection_string, table: b.table }
-      : { url: b.url };
+      : { url };
     if (b.type === "csv" && !cfg.csv_text) return res.status(400).json({ ok: false, error: "CSV content required" });
     if (b.type !== "csv" && !cfg.url && !cfg.connectionString) return res.status(400).json({ ok: false, error: "config incomplete" });
     const id = crypto.randomUUID();
     const secret = newSecret();
-    db.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,schedule_minutes,secret,created_at)
-                VALUES (?,?,?,?,?,?,?,?)`)
-      .run(id, req.user.id, b.type, b.name, encryptSecret(JSON.stringify(cfg), config.encryptionKey), b.schedule_minutes, secret, now());
+    db.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,schedule_minutes,secret,push_secret,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(id, req.user.id, b.type, b.name, encryptSecret(JSON.stringify(cfg), config.encryptionKey), b.schedule_minutes, secret, newSecret(), now());
     audit(db, req.user.id, "source_created", { id, type: b.type });
 
     const sync = await runSync({ db, config, logger, connectors }, id, { manual: true });
@@ -200,8 +204,13 @@ export function createDashboardRouter(deps) {
   });
 
   router.get("/sources/:id", guard, (req, res) => {
-    const source = ownedSource(db, req.user.id, req.params.id);
+    let source = ownedSource(db, req.user.id, req.params.id);
     if (!source) return res.status(404).send(pages.layoutPage("Not found", "<p>Not found</p>"));
+    if (!source.push_secret) {
+      // Backfill for sources created before the push API existed.
+      db.prepare("UPDATE sources SET push_secret = ? WHERE id = ?").run(newSecret(), source.id);
+      source = ownedSource(db, req.user.id, req.params.id);
+    }
     const runs = db.prepare("SELECT * FROM sync_runs WHERE source_id=? ORDER BY started_at DESC LIMIT 10").all(source.id);
     const tool = db.prepare("SELECT * FROM tools WHERE source_id=?").get(source.id);
     const calls = db.prepare("SELECT * FROM tool_calls WHERE source_id=? ORDER BY ts DESC LIMIT 20").all(source.id);

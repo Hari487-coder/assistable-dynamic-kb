@@ -49,8 +49,11 @@ whole flow works end-to-end locally with a mock assistant.
 
 1. **Sign up → Connect** — paste an Assistable v3 API key (verified via
    `GET /v3/assistants`, then AES-256-GCM encrypted at rest, never shown again).
-2. **Add a source** — CSV upload, feed URL (JSON/CSV/XML), website crawl, or
-   Postgres/Supabase (read-only SELECT). The sync engine ingests into a new
+2. **Add a source** — CSV upload, feed URL (JSON/CSV/XML; Shopify-style nested
+   variants explode into per-variant rows), website crawl, a price table on a
+   web page (`webtable` — scrap yards, rate sheets), or Postgres/Supabase
+   (read-only SELECT). Every source also gets a **push API** (refresh + CSV
+   content replace) for second-level freshness. The sync engine ingests into a new
    batch, validates it (shrink guard), and atomically swaps it live. Column
    types are inferred (numeric / categorical / text).
 3. **Tool provisioning** — a `live_data_<name>` tool is created in the user's

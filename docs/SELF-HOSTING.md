@@ -105,8 +105,10 @@ Connection page.
 
 1. **Sign up** at your URL — first account claims the instance.
 2. **Connection** page → paste the API key you just created (scopes above).
-3. **Add a source** — CSV upload, feed URL (JSON/CSV/XML), website, or
-   Postgres/Supabase (read-only). First sync runs immediately; a
+3. **Add a source** — CSV upload, feed URL (JSON/CSV/XML; Shopify-style nested
+   variants become one row per variant), website (prose pages), **price table
+   on a web page** (scrap yards, rate sheets, service menus — the table becomes
+   filterable rows), or Postgres/Supabase (read-only). First sync runs immediately; a
    `live_data_<name>` tool is created in YOUR Assistable account and assigned
    to the assistants you tick. The tool serves **both voice and chat**
    automatically.
@@ -126,6 +128,12 @@ Connection page.
 
 ## Day-2 operations
 
+- **Live pricing / real-time updates (push API)**: every source has a push
+  secret (on its detail page, separate from the tool secret).
+  `POST /api/push/:id/refresh` re-syncs any source the moment your data
+  changes; `POST /api/push/:id/content` (CSV sources) replaces the data in one
+  call — push a price change and the very next caller hears the new number.
+  Copy-paste `curl` examples are on the source page.
 - **Freshness**: sources re-sync on their schedule; "Sync now" any time. Every
   answer carries `as_of` + freshness so agents never silently serve stale data.
 - **Safety**: a failed or suspicious sync (e.g. feed suddenly returns 3 rows

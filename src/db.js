@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS connections (
 );
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('website','feed','csv','database')),
+  type TEXT NOT NULL CHECK (type IN ('website','feed','csv','database','webtable')),
   name TEXT NOT NULL, config_ct TEXT NOT NULL,
   schedule_minutes INTEGER NOT NULL DEFAULT 1440,
   secret TEXT NOT NULL,
@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS sources (
   active_batch_id TEXT, prev_batch_id TEXT,
   column_meta_json TEXT NOT NULL DEFAULT '[]',
   last_sync_at TEXT, next_run_at TEXT, consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  push_secret TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sources_due ON sources (next_run_at) WHERE status != 'syncing';
 CREATE TABLE IF NOT EXISTS items (
@@ -74,7 +75,40 @@ export function openDb(filePath) {
   db.exec("PRAGMA synchronous = NORMAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Idempotent in-place migrations for databases created by older versions. */
+function migrate(db) {
+  const cols = db.prepare("PRAGMA table_info(sources)").all().map((c) => c.name);
+  if (!cols.includes("push_secret")) db.exec("ALTER TABLE sources ADD COLUMN push_secret TEXT");
+  // The type CHECK is baked into the table SQL; rebuild once to admit 'webtable'.
+  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sources'").get().sql;
+  if (!tableSql.includes("webtable")) {
+    db.exec("PRAGMA foreign_keys = OFF;");
+    tx(db, () => {
+      db.exec(`CREATE TABLE sources_migrated (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('website','feed','csv','database','webtable')),
+        name TEXT NOT NULL, config_ct TEXT NOT NULL,
+        schedule_minutes INTEGER NOT NULL DEFAULT 1440,
+        secret TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'never_synced'
+          CHECK (status IN ('never_synced','syncing','active','stale','error')),
+        active_batch_id TEXT, prev_batch_id TEXT,
+        column_meta_json TEXT NOT NULL DEFAULT '[]',
+        last_sync_at TEXT, next_run_at TEXT, consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        push_secret TEXT
+      )`);
+      db.exec("INSERT INTO sources_migrated SELECT * FROM sources");
+      db.exec("DROP TABLE sources");
+      db.exec("ALTER TABLE sources_migrated RENAME TO sources");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_sources_due ON sources (next_run_at) WHERE status != 'syncing'");
+    });
+    db.exec("PRAGMA foreign_keys = ON;");
+  }
 }
 
 /** Manual transaction helper (node:sqlite has no db.transaction()). */
