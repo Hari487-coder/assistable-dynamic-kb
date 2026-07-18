@@ -5,6 +5,18 @@ export const ALIASES = new Map(Object.entries({
 
 export const normalizeToken = (s) => String(s ?? "").toLowerCase().trim().replace(/[^\w\s-]/g, "");
 
+// Words that carry no retrieval signal in a spoken question. Filtering them
+// before FTS keeps matches precise AND fast (every extra term is a doclist
+// merge over the whole index).
+const STOPWORDS = new Set(("a an the any some do does you your yours have has is are was be been what whats which who how many much " +
+  "i we me my our us it its in on of for with and or to from at by please show me find got there their this that these those can could would like want need").split(" "));
+
+/** Query text -> FTS-ready tokens: lowercased, punctuation-free, stopword-filtered, max 6. */
+export function tokensFor(query) {
+  return String(query || "").toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/)
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t)).slice(0, 6);
+}
+
 export function editDistance(a, b) {
   a = normalizeToken(a); b = normalizeToken(b);
   const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);

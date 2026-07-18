@@ -1,4 +1,4 @@
-import { resolveCategorical } from "./normalize.js";
+import { resolveCategorical, tokensFor } from "./normalize.js";
 import { deriveIntent } from "./intent.js";
 
 const SENTINEL = (v) => v === "" || v === 0 || v === null || v === undefined;
@@ -42,28 +42,42 @@ function runQuery(db, source, filters, query, sort = null) {
   const count = (extraSql = "", extraParams = []) =>
     db.prepare(`SELECT count(*) c FROM items i ${extraSql ? `JOIN items_fts ON items_fts.rowid = i.rowid` : ""}
                 WHERE ${whereSql}${extraSql}`).get(...baseParams, ...extraParams).c;
+  // COUNT only pays off when the page is full — a short page IS the total.
+  const withTotal = (rows, extraSql = "", extraParams = []) =>
+    ({ rows, total: rows.length < 5 ? rows.length : count(extraSql, extraParams) });
 
   // Explicit sort intent ("cheapest", "newest") outranks relevance ordering.
   if (sort) {
     const orderSql = `ORDER BY CAST(json_extract(i.structured_json, ?) AS REAL) ${sort.dir === "desc" ? "DESC" : "ASC"} LIMIT 5`;
     const rows = db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} ${orderSql}`).all(...baseParams, `$.${sort.col}`);
-    return { rows, total: count() };
+    return withTotal(rows);
   }
 
-  const tokens = String(query || "").toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((t) => t.length > 1).slice(0, 8);
+  // Stem-exact terms (porter covers plurals), never prefix wildcards — prefix
+  // scans over a large term dictionary were measured at 100-800ms on 5k rows.
+  // Two-stage: (1) relevance candidates from the FTS index alone — no JSON
+  // evaluation; (2) filters applied to at most 500 candidate rowids. Evaluating
+  // json_extract per FTS match was the remaining measured hotspot (~110ms CPU).
+  // The 500-candidate cap is per-instance-single-business safe (self-hosted).
+  const tokens = tokensFor(query);
   if (tokens.length) {
-    // Precision first: require ALL tokens, fall back to ANY. Title weighted 2x.
-    const ftsSql = (match) => db.prepare(
-      `SELECT i.*, bm25(items_fts, 2.0, 1.0) AS rank FROM items i JOIN items_fts ON items_fts.rowid = i.rowid
-       WHERE ${whereSql} AND items_fts MATCH ? ORDER BY rank LIMIT 5`).all(...baseParams, match);
-    const quoted = tokens.map((t) => `"${t}"*`);
+    const quoted = tokens.map((t) => `"${t}"`);
     for (const match of [quoted.join(" AND "), quoted.join(" OR ")]) {
-      const rows = ftsSql(match);
-      if (rows.length) return { rows, total: count(" AND items_fts MATCH ?", [match]) };
+      const cand = db.prepare(
+        `SELECT rowid AS rid, bm25(items_fts, 2.0, 1.0) AS rank FROM items_fts
+         WHERE items_fts MATCH ? ORDER BY rank LIMIT 500`).all(match);
+      if (!cand.length) continue;
+      const rankByRid = new Map(cand.map((c) => [c.rid, c.rank]));
+      const rows = db.prepare(
+        `SELECT i.*, i.rowid AS rid FROM items i
+         WHERE ${whereSql} AND i.rowid IN (${cand.map(() => "?").join(",")})`)
+        .all(...baseParams, ...cand.map((c) => c.rid))
+        .sort((a, b) => rankByRid.get(a.rid) - rankByRid.get(b.rid));
+      if (rows.length) return { rows: rows.slice(0, 5), total: rows.length };
     }
   }
   const rows = db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} LIMIT 5`).all(...baseParams);
-  return { rows, total: count() };
+  return withTotal(rows);
 }
 
 export function searchStructured(db, source, args = {}) {
@@ -95,7 +109,8 @@ export function searchStructured(db, source, args = {}) {
   for (const f of active) appliedFilters[f.op === "cat" ? f.col : `${f.col}_${f.op}`] = f.resolved ?? f.value;
 
   const wrap = (rows) => rows.map((r) => ({ ...r, structured: JSON.parse(r.structured_json) }));
-  let res = runQuery(db, source, active, args.query, intent.sort);
+  const ftsQuery = intent.cleanedQuery;
+  let res = runQuery(db, source, active, ftsQuery, intent.sort);
   if (res.rows.length) {
     if (intent.sort) relaxations.push(`sorted by ${intent.sort.col} ${intent.sort.dir === "desc" ? "high to low" : "low to high"}`);
     return { items: wrap(res.rows), resultCount: res.total, appliedFilters, relaxations, alternatives: [] };
@@ -106,7 +121,7 @@ export function searchStructured(db, source, args = {}) {
     f.op === "max" ? { ...f, value: Math.round(f.value * 1.15) } :
     f.op === "min" ? { ...f, value: Math.round(f.value * 0.85) } : f
   );
-  res = runQuery(db, source, widened, args.query, intent.sort);
+  res = runQuery(db, source, widened, ftsQuery, intent.sort);
   if (res.rows.length) {
     for (const f of widened) if (["min", "max"].includes(f.op)) relaxations.push(`widened ${f.col}_${f.op} to ${f.value}`);
     return { items: [], resultCount: 0, appliedFilters, relaxations, alternatives: wrap(res.rows) };
@@ -116,7 +131,7 @@ export function searchStructured(db, source, args = {}) {
   let best = { rows: [], dropped: null };
   for (let i = 0; i < active.length; i++) {
     const subset = active.filter((_, j) => j !== i);
-    const r = runQuery(db, source, subset, args.query, intent.sort);
+    const r = runQuery(db, source, subset, ftsQuery, intent.sort);
     if (r.rows.length > best.rows.length) best = { rows: r.rows, dropped: active[i] };
   }
   if (best.rows.length) {
@@ -125,7 +140,7 @@ export function searchStructured(db, source, args = {}) {
   }
 
   // Tier 4: query-only FTS
-  res = runQuery(db, source, [], args.query, null);
+  res = runQuery(db, source, [], ftsQuery, null);
   if (res.rows.length) relaxations.push("no filter match; keyword-only results");
   return { items: [], resultCount: 0, appliedFilters, relaxations, alternatives: wrap(res.rows.slice(0, 3)) };
 }

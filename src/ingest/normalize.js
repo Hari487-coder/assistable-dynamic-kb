@@ -9,6 +9,12 @@ export function parseNumericLike(v) {
   return Number(s) * mult;
 }
 
+// Filterable-categorical ceiling. A 1,000-row inventory legitimately has 60+
+// models; treating those as free text would silently drop exact filtering —
+// the same failure the static KB has. IDs (VINs, SKUs) stay text because their
+// distinct-ratio is ~1.
+const MAX_DISTINCTS = 500;
+
 export function inferColumnMeta(rows) {
   if (!rows.length) return [];
   const names = Object.keys(rows[0]);
@@ -18,9 +24,17 @@ export function inferColumnMeta(rows) {
     if (vals.length > 0 && nums.length >= vals.length * 0.9) {
       return { name, kind: "numeric", min: Math.min(...nums), max: Math.max(...nums) };
     }
-    const distinct = [...new Set(vals.map((v) => String(v).trim()))];
-    if (distinct.length <= Math.max(25, rows.length * 0.05) && distinct.length <= 25) {
-      return { name, kind: "categorical", distincts: distinct };
+    const freq = new Map();
+    for (const v of vals) {
+      const s = String(v).trim();
+      freq.set(s, (freq.get(s) ?? 0) + 1);
+    }
+    const isCategorical = freq.size > 0 && freq.size <= MAX_DISTINCTS &&
+      (freq.size <= 25 || freq.size / vals.length <= 0.5);
+    if (isCategorical) {
+      // Frequency-ordered so the tool description's top-25 shows what matters.
+      const distincts = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+      return { name, kind: "categorical", distincts };
     }
     return { name, kind: "text" };
   });

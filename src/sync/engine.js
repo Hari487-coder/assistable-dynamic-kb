@@ -6,6 +6,7 @@ import { tx } from "../db.js";
 import { inferColumnMeta, rowToItem } from "../ingest/normalize.js";
 
 const RETRY_MINUTES = [1, 5, 15];
+const MAX_ITEMS_PER_SOURCE = 50_000;
 
 export function classifyError(err) {
   if (err?.permanent === true) return "permanent";
@@ -60,6 +61,9 @@ export async function runSync(deps, sourceId, { manual = false, force = false } 
     const connector = connectors[source.type];
     if (!connector) return finishFail(`no connector for type ${source.type}`, "permanent");
     const { rows } = await connector(cfg);
+    if (rows.length > MAX_ITEMS_PER_SOURCE) {
+      return finishFail(`source has ${rows.length} rows; the per-source limit is ${MAX_ITEMS_PER_SOURCE} (split into multiple sources or narrow the feed)`, "permanent");
+    }
 
     const columns = source.type === "website"
       ? [{ name: "page_url", kind: "text" }, { name: "heading", kind: "text" }, { name: "content", kind: "text" }]
@@ -118,6 +122,7 @@ export function startScheduler(deps, { tickMs = 30_000 } = {}) {
       if (new Date().getHours() >= 3 && lastBackupDay !== today) {
         lastBackupDay = today;
         backup(db, config.dataDir, logger);
+        runRetention(db, logger);
       }
       const due = db.prepare(`SELECT id FROM sources WHERE status != 'syncing' AND next_run_at IS NOT NULL AND next_run_at <= ? LIMIT 4`)
         .all(new Date().toISOString());
@@ -131,6 +136,16 @@ export function startScheduler(deps, { tickMs = 30_000 } = {}) {
     }
   }, tickMs);
   return { stop: () => clearInterval(timer) };
+}
+
+/** Long-run hygiene: logs must not grow without bound on a small free host. */
+export function runRetention(db, logger, now = Date.now()) {
+  const cutoff = (days) => new Date(now - days * 864e5).toISOString();
+  const calls = db.prepare("DELETE FROM tool_calls WHERE ts < ?").run(cutoff(90)).changes;
+  const runs = db.prepare("DELETE FROM sync_runs WHERE started_at < ? AND status != 'running'").run(cutoff(90)).changes;
+  const audits = db.prepare("DELETE FROM audit_log WHERE ts < ?").run(cutoff(180)).changes;
+  if (calls || runs || audits) logger.info("retention pruned", { calls, runs, audits });
+  return { calls, runs, audits };
 }
 
 function backup(db, dataDir, logger) {

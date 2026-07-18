@@ -37,27 +37,32 @@ function boundFilter(query, columns, re, op) {
 }
 
 /**
- * deriveIntent(query, columns) -> { filters: [{col, op, value, note}], sort: {col, dir}|null }
- * Only proposes filters; the caller must skip any column the LLM already filtered.
+ * deriveIntent(query, columns) ->
+ *   { filters: [{col, op, value, note}], sort: {col, dir}|null, cleanedQuery }
+ * Only proposes filters; the caller must skip any column the LLM already
+ * filtered. cleanedQuery has consumed phrases removed so the FTS leg doesn't
+ * re-match filter words ("under 30 thousand") as content tokens.
  */
 export function deriveIntent(query, columns) {
-  const q = String(query || "");
+  let q = String(query || "");
   const filters = [];
   for (const [re, op] of [[MAX_RE, "max"], [MIN_RE, "min"]]) {
+    const m = q.match(re);
     const f = boundFilter(q, columns, re, op);
-    if (f) filters.push(f);
+    if (f) { filters.push(f); q = q.replace(m[0], " "); }
   }
   const yearCol = findCol(columns, "year");
   const ym = q.match(YEAR_RE);
   if (yearCol && ym) {
     filters.push({ col: yearCol, op: "eq", value: Number(ym[1]), note: `matched year ${ym[1]} from the question` });
+    q = q.replace(ym[0], " ");
   }
   let sort = null;
   for (const s of SORTS) {
     if (s.re.test(q)) {
       const col = findCol(columns, s.colKind);
-      if (col) { sort = { col, dir: s.dir }; break; }
+      if (col) { sort = { col, dir: s.dir }; q = q.replace(s.re, " "); break; }
     }
   }
-  return { filters, sort };
+  return { filters, sort, cleanedQuery: q };
 }

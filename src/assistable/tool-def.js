@@ -12,9 +12,11 @@ export function buildToolDefinition(source, columnMeta, { baseUrl, secret }) {
   let slots = MAX_FILTER_PARAMS;
   for (const c of categoricals) {
     if (slots <= 0) break;
+    const shown = c.distincts.slice(0, 25);
+    const more = c.distincts.length - shown.length;
     properties[c.name] = {
       type: "string",
-      description: `Filter by ${c.name}. Allowed values: ${c.distincts.slice(0, 25).join(", ")}. Use "" if the customer did not mention it.`,
+      description: `Filter by ${c.name}. Common values: ${shown.join(", ")}${more > 0 ? ` (+${more} more accepted - pass whatever the customer says)` : ""}. Use "" if the customer did not mention it.`,
     };
     filterSummaries.push(c.name);
     slots--;
