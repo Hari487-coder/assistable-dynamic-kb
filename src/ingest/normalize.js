@@ -22,7 +22,11 @@ export function inferColumnMeta(rows) {
     const vals = rows.map((r) => r[name]).filter((v) => v !== null && v !== undefined && String(v).trim() !== "");
     const nums = vals.map(parseNumericLike).filter((n) => n !== null);
     if (vals.length > 0 && nums.length >= vals.length * 0.9) {
-      return { name, kind: "numeric", min: Math.min(...nums), max: Math.max(...nums) };
+      // Quartiles power qualitative intent ("cheap" = this business's own
+      // bottom quartile). Recomputed on every sync, so they can't go stale.
+      const sorted = [...nums].sort((a, b) => a - b);
+      const q = (p) => sorted[Math.floor(p * (sorted.length - 1))];
+      return { name, kind: "numeric", min: sorted[0], max: sorted[sorted.length - 1], p25: q(0.25), p75: q(0.75) };
     }
     const freq = new Map();
     for (const v of vals) {

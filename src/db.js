@@ -44,6 +44,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
   INSERT INTO items_fts(items_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body);
 END;
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts_vocab USING fts5vocab('items_fts','row');
 CREATE TABLE IF NOT EXISTS sync_runs (
   id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   batch_id TEXT, started_at TEXT NOT NULL, heartbeat_at TEXT, finished_at TEXT,

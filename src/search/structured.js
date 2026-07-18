@@ -1,5 +1,6 @@
-import { resolveCategorical, tokensFor } from "./normalize.js";
+import { resolveCategorical, tokensFor, expandToken } from "./normalize.js";
 import { deriveIntent } from "./intent.js";
+import { correctTokens } from "./spell.js";
 import { parseNumericLike } from "../ingest/normalize.js";
 
 const SENTINEL = (v) => v === "" || v === 0 || v === null || v === undefined;
@@ -91,22 +92,40 @@ function runQuery(db, source, filters, query, sort = null) {
   // evaluation; (2) filters applied to at most 500 candidate rowids. Evaluating
   // json_extract per FTS match was the remaining measured hotspot (~110ms CPU).
   // The 500-candidate cap is per-instance-single-business safe (self-hosted).
-  const tokens = tokensFor(query);
+  let tokens = tokensFor(query);
   if (tokens.length) {
-    const quoted = tokens.map((t) => `"${t}"`);
-    for (const match of [quoted.join(" AND "), quoted.join(" OR ")]) {
-      const cand = db.prepare(
-        `SELECT rowid AS rid, bm25(items_fts, 2.0, 1.0) AS rank FROM items_fts
-         WHERE items_fts MATCH ? ORDER BY rank LIMIT 500`).all(match);
-      if (!cand.length) continue;
-      const rankByRid = new Map(cand.map((c) => [c.rid, c.rank]));
-      const rows = db.prepare(
-        `SELECT i.*, i.rowid AS rid FROM items i
-         WHERE ${whereSql} AND i.rowid IN (${cand.map(() => "?").join(",")})`)
-        .all(...baseParams, ...cand.map((c) => c.rid))
-        .sort((a, b) => rankByRid.get(a.rid) - rankByRid.get(b.rid));
-      if (rows.length) return { rows: rows.slice(0, 5), total: rows.length };
+    const attempt = (toks) => {
+      // Concept = the token OR its synonyms (parity with the text engine).
+      const concepts = toks.map((t) => {
+        const g = expandToken(t).map((w) => `"${w}"`);
+        return g.length > 1 ? `(${g.join(" OR ")})` : g[0];
+      });
+      for (const match of [concepts.join(" AND "), concepts.join(" OR ")]) {
+        const cand = db.prepare(
+          `SELECT rowid AS rid, bm25(items_fts, 2.0, 1.0) AS rank FROM items_fts
+           WHERE items_fts MATCH ? ORDER BY rank LIMIT 500`).all(match);
+        if (!cand.length) continue;
+        const rankByRid = new Map(cand.map((c) => [c.rid, c.rank]));
+        const rows = db.prepare(
+          `SELECT i.*, i.rowid AS rid FROM items i
+           WHERE ${whereSql} AND i.rowid IN (${cand.map(() => "?").join(",")})`)
+          .all(...baseParams, ...cand.map((c) => c.rid))
+          .sort((a, b) => rankByRid.get(a.rid) - rankByRid.get(b.rid));
+        if (rows.length) return { rows: rows.slice(0, 5), total: rows.length };
+      }
+      return null;
+    };
+    let found = attempt(tokens);
+    if (!found) {
+      // Dead end: spell-correct against this source's own indexed vocabulary
+      // and retry once (catches ASR near-misses like "tocoma").
+      const fixed = correctTokens(db, tokens);
+      if (fixed.changes.length) {
+        found = attempt(fixed.tokens);
+        if (found) found.spellChanges = fixed.changes;
+      }
     }
+    if (found) return found;
   }
   // Stable rowid ordering: identical calls return identical rows (caching,
   // retries, and screenshots all depend on determinism).
@@ -166,6 +185,7 @@ export function searchStructured(db, source, args = {}) {
   let res = runQuery(db, source, active, ftsQuery, intent.sort);
   if (res.rows.length) {
     if (intent.sort) relaxations.push(`sorted by ${intent.sort.col} ${intent.sort.dir === "desc" ? "high to low" : "low to high"}`);
+    if (res.spellChanges) relaxations.push(`corrected spelling: ${res.spellChanges.join(", ")}`);
     return { items: wrap(res.rows), resultCount: res.total, appliedFilters, relaxations, alternatives: [] };
   }
 

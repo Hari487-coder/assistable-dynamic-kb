@@ -1,7 +1,8 @@
 import { tokensFor, expandToken } from "./normalize.js";
+import { correctTokens } from "./spell.js";
 
 export function searchText(db, source, query) {
-  const tokens = tokensFor(query);
+  let tokens = tokensFor(query);
   if (!tokens.length) return { items: [], resultCount: 0, matchQuality: "none" };
   // Precision first: ALL concepts must match (each concept = the token OR its
   // synonyms), fall back to ANY. Title weighted 2x. Stem-exact, no prefix
@@ -12,12 +13,23 @@ export function searchText(db, source, query) {
      WHERE i.source_id = ? AND i.batch_id = ? AND items_fts MATCH ?
      ORDER BY rank LIMIT 5`
   ).all(source.id, source.active_batch_id, match);
-  const concepts = tokens.map((t) => {
+  const conceptsFor = (toks) => toks.map((t) => {
     const group = expandToken(t).map((w) => `"${w}"`);
     return group.length > 1 ? `(${group.join(" OR ")})` : group[0];
   });
   let matchQuality = "strong";
+  let spellChanges = [];
+  let concepts = conceptsFor(tokens);
   let rows = run(concepts.join(" AND "));
+  if (!rows.length) {
+    // Dead end: try the source's own vocabulary for a spelling fix first.
+    const fixed = correctTokens(db, tokens);
+    if (fixed.changes.length) {
+      concepts = conceptsFor(fixed.tokens);
+      rows = run(concepts.join(" AND "));
+      if (rows.length) spellChanges = fixed.changes;
+    }
+  }
   if (!rows.length) {
     matchQuality = "weak";
     rows = run(concepts.join(" OR "));
@@ -26,5 +38,6 @@ export function searchText(db, source, query) {
     items: rows.map((r) => ({ title: r.title, snippet: r.body.slice(0, 300) })),
     resultCount: rows.length,
     matchQuality: rows.length ? matchQuality : "none",
+    ...(spellChanges.length ? { spellChanges } : {}),
   };
 }
