@@ -32,11 +32,11 @@ before(() => {
   source = db.prepare("SELECT * FROM sources WHERE id='s1'").get();
 });
 
-test("Tacoma under 30k: exact structured hit", () => {
+test("Tacoma under 30k: exact structured hit (year derived from query)", () => {
   const r = searchStructured(db, source, { query: "2022 tacoma", filters: { make: "Toyota", model: "Tacoma", price_max: 30000 } });
-  assert.equal(r.resultCount, 2);
-  assert.ok(r.items.every((i) => i.structured.price <= 30000 && i.structured.model === "Tacoma"));
-  assert.deepEqual(r.relaxations, []);
+  assert.equal(r.resultCount, 1, "the spoken year 2022 must narrow to the 2022 truck");
+  assert.equal(r.items[0].structured.vin, "VIN001");
+  assert.ok(r.relaxations.some((n) => /year 2022/.test(n)), "derivation must be visible in relaxations");
 });
 
 test("alias: chevy resolves to Chevrolet", () => {
