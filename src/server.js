@@ -29,8 +29,8 @@ export const defaultConnectors = {
 export function buildApp(deps) {
   const { db, config, logger } = deps;
   const connectors = deps.connectors ?? defaultConnectors;
-  const makeClient = deps.makeClient ?? ((apiKey) =>
-    new AssistableClient({ apiKey, base: config.assistableApiBase, mock: config.mockAssistable, logger }));
+  const makeClient = deps.makeClient ?? ((apiKey, subAccountId) =>
+    new AssistableClient({ apiKey, subAccountId, base: config.assistableApiBase, mock: config.mockAssistable, logger }));
 
   const app = express();
   app.disable("x-powered-by");

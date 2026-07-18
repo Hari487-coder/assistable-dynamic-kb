@@ -107,10 +107,27 @@ export const connectPage = (conn) => layoutPage("Connection", `
 <h1>Assistable connection</h1>
 ${conn ? `<p>Status: <span class="chip active">connected</span></p>` : `<p>Not connected yet.</p>`}
 ${scopesBox()}
-<form onsubmit="api('/connect',formJson(this)).then(o=>o.ok&&location.reload());return false">
-<input name="api_key" type="password" placeholder="Paste your Assistable v3 API key" autocomplete="off" required>
+<form onsubmit="doConnect(this);return false">
+<label>Your Assistable v3 API key
+<input name="api_key" type="password" placeholder="Paste the key here" autocomplete="off" required></label>
+<label>Subaccount / Location ID <small>- only needed if your key covers more than one subaccount</small>
+<input name="subaccount_id" placeholder="optional" autocomplete="off"></label>
 <button>${conn ? "Replace key" : "Connect"}</button></form>
-<p>The key is verified live against the Assistable API before it is accepted.</p>`);
+<p id="connect-error" class="warn" style="display:none"></p>
+<p><small>The key is verified live against the Assistable API before it is accepted. If it
+fails, the exact reason from Assistable is shown above so you know what to change.</small></p>
+<script>
+async function doConnect(f){
+  const box = document.getElementById('connect-error');
+  box.style.display = 'none';
+  const r = await fetch('/connect',{method:'POST',headers:{'content-type':'application/json','x-requested-with':'kb-bridge'},body:JSON.stringify(formJson(f))});
+  const out = await r.json().catch(()=>({ok:false,error:'Unexpected response ('+r.status+')'}));
+  if (out.ok) { location.reload(); return; }
+  box.textContent = out.error;
+  box.style.display = '';
+  if (out.needs_subaccount) f.subaccount_id.focus();
+}
+</script>`);
 
 const TYPE_LABELS = {
   csv: "Spreadsheet (CSV)", feed: "Data feed", website: "Website pages",

@@ -77,20 +77,28 @@ export function createDashboardRouter(deps) {
 
   router.post("/connect", guard, async (req, res) => {
     const key = String(req.body?.api_key || "").trim();
-    if (key.length < 8) return res.status(400).json({ ok: false, error: "key looks too short" });
-    const client = makeClient(key);
-    if (!(await client.verifyKey())) return res.status(400).json({ ok: false, error: "Assistable rejected this key" });
-    db.prepare(`INSERT INTO connections (user_id, api_key_ct, status, created_at, updated_at) VALUES (?,?,?,?,?)
-                ON CONFLICT(user_id) DO UPDATE SET api_key_ct=excluded.api_key_ct, status='verified', updated_at=excluded.updated_at`)
-      .run(req.user.id, encryptSecret(key, config.encryptionKey), "verified", now(), now());
-    audit(db, req.user.id, "connect_assistable", {});
-    res.json({ ok: true });
+    const subAccountId = String(req.body?.subaccount_id || "").trim() || null;
+    if (key.length < 8) {
+      return res.status(400).json({ ok: false, error: "That key looks too short - copy the whole key from Assistable (it's only shown once)." });
+    }
+    const probe = await makeClient(key, subAccountId).verifyConnection();
+    if (!probe.ok) {
+      logger.warn("assistable connect failed", { userId: req.user.id, status: probe.status, code: probe.code });
+      audit(db, req.user.id, "connect_failed", { status: probe.status, code: probe.code });
+      return res.status(400).json({ ok: false, error: probe.reason, needs_subaccount: probe.code === "subaccount_required" });
+    }
+    db.prepare(`INSERT INTO connections (user_id, api_key_ct, status, subaccount_id, created_at, updated_at) VALUES (?,?,?,?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET api_key_ct=excluded.api_key_ct, status='verified',
+                  subaccount_id=excluded.subaccount_id, updated_at=excluded.updated_at`)
+      .run(req.user.id, encryptSecret(key, config.encryptionKey), "verified", subAccountId, now(), now());
+    audit(db, req.user.id, "connect_assistable", { subaccount: subAccountId ? "set" : "auto" });
+    res.json({ ok: true, assistants: probe.assistantCount });
   });
 
   const clientFor = (userId) => {
     const conn = ownedConnection(db, userId);
     if (!conn) return null;
-    return makeClient(decryptSecret(conn.api_key_ct, config.encryptionKey));
+    return makeClient(decryptSecret(conn.api_key_ct, config.encryptionKey), conn.subaccount_id);
   };
 
   const dataStats = (userId) => {

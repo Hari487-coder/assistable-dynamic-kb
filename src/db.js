@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS connections (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   api_key_ct TEXT NOT NULL, label TEXT, status TEXT NOT NULL DEFAULT 'unverified',
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  subaccount_id TEXT
 );
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -85,6 +86,8 @@ export function openDb(filePath) {
 function migrate(db) {
   const cols = db.prepare("PRAGMA table_info(sources)").all().map((c) => c.name);
   if (!cols.includes("push_secret")) db.exec("ALTER TABLE sources ADD COLUMN push_secret TEXT");
+  const connCols = db.prepare("PRAGMA table_info(connections)").all().map((c) => c.name);
+  if (!connCols.includes("subaccount_id")) db.exec("ALTER TABLE connections ADD COLUMN subaccount_id TEXT");
   const callCols = db.prepare("PRAGMA table_info(tool_calls)").all().map((c) => c.name);
   if (!callCols.includes("outcome")) db.exec("ALTER TABLE tool_calls ADD COLUMN outcome TEXT");
   if (!callCols.includes("flags")) db.exec("ALTER TABLE tool_calls ADD COLUMN flags TEXT");

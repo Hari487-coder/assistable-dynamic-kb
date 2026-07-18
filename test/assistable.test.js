@@ -13,7 +13,7 @@ test("mock client records calls and returns ids", async () => {
   assert.equal(c.mockCalls[0].path, "/v3/tools");
 });
 
-test("real client unwraps envelope and sends auth headers", async () => {
+test("real client unwraps envelope and sends the Bearer auth header", async () => {
   let captured;
   const fetchImpl = async (url, opts) => {
     captured = { url, opts };
@@ -22,8 +22,10 @@ test("real client unwraps envelope and sends auth headers", async () => {
   const c = new AssistableClient({ apiKey: "sek", base: "https://api.test", mock: false, logger: noopLog, fetchImpl });
   const assistants = await c.listAssistants();
   assert.equal(assistants[0].id, "a1");
+  // Verified in platform source (managed-api-key-auth.ts:67-77): the v3 API
+  // reads ONLY `Authorization: Bearer`. x-api-key was never honoured.
   assert.equal(captured.opts.headers["authorization"], "Bearer sek");
-  assert.equal(captured.opts.headers["x-api-key"], "sek");
+  assert.ok(!("x-api-key" in captured.opts.headers));
   assert.ok(!captured.url.includes("include_archived"), "must omit include_archived (coercion footgun)");
 });
 

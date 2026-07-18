@@ -95,6 +95,11 @@ subaccount** whose assistants should get live data, with **only** these scopes:
 | `tools : update` | assigning the tool to assistants; refreshing its description |
 | `tools : delete` | *optional* — cleanup when you delete a source |
 
+**If your key covers more than one subaccount**, Assistable also needs to know
+which one to use — paste your **Subaccount / Location ID** in the field on the
+Connection page. (Keys scoped to exactly one subaccount work without it.) If
+you skip it when it's required, the portal tells you so directly.
+
 Explicitly **not needed**: knowledge-base, contacts, conversations, calls,
 phone-number, billing, or workspace scopes. The portal verifies the key live,
 stores it AES-256-GCM encrypted, never displays it again, and uses it only for
@@ -155,4 +160,7 @@ Connection page.
 | Voice ignores new filter columns | Voice caches the tool schema at assistant-save — re-save the assistant in Assistable (the portal shows a banner when needed). |
 | "signups are closed" | `SIGNUPS=first-only` and an owner exists. That's the self-host default working as intended. |
 | First sync failed | Source detail page shows the exact error (SSRF-blocked URL, robots.txt, bad credentials, empty feed…). Fix config and "Sync now". |
+| Connect fails and mentions a subaccount | Your key spans multiple subaccounts — paste the Subaccount / Location ID in the field below the key and connect again. |
+| Connect fails with "missing a permission" | The key needs `assistants:list`, `tools:create`, `tools:update`. Recreate it with those scopes. |
+| Connect fails with "couldn't reach Assistable" | Your instance has no outbound internet, or the API address is wrong — set `ASSISTABLE_API_BASE` if Assistable gave your account a different API URL. |
 | Feed/website URL rejected | The SSRF guard blocks private/internal addresses by design — the URL must be publicly reachable. |
