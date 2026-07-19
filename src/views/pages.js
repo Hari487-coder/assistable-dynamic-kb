@@ -6,119 +6,160 @@ export function layoutPage(title, body) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Daybreak tokens (from the mortgage platform), extended with a dark set.
-   One accent (iris) across the whole app; one radius scale; light and dark
-   are the SAME hierarchy, not two different designs. */
-:root{color-scheme:light dark;
---page-bg:#f7f7fb;--surface:#fff;--surface-sunken:#f2f2f7;--border:#e8e8ef;--border-strong:#d9d9e3;
---ring:rgba(124,58,237,.32);--text-primary:#101828;--text-secondary:#4a5565;--text-muted:#6a7282;
---ink:#7c3aed;--ink-hover:#6b2fd6;--ink-fg:#fff;
---accent:#7c3aed;--accent-strong:#6b2fd6;--accent-tint:#f5f0ff;--accent-tint-border:#e4d8fd;
---good:#0c7d55;--good-tint:#e9f7f1;--good-tint-border:#c2e7d7;
+/* iOS grouped-list idiom. The portal is a settings app in disguise: rows of
+   status, a checklist, detail screens. The grouped table view solves that
+   layout better than cards-on-white, so the structure is borrowed honestly:
+   grey canvas, white groups at 10px radii, separators inset past the label,
+   one tint for everything interactive. Tint is Assistable violet, not Apple
+   blue, because the brand outranks the reference. */
+:root{color-scheme:light;
+--canvas:#f2f2f7;--group:#fff;
+--label:#0a0a0a;--label-2:#4a5565;--label-3:#6a7282;
+--separator:#e3e3ea;--separator-strong:#d1d1d8;
+--tint:#7c3aed;--tint-press:#6b2fd6;--tint-wash:#f5f0ff;--on-tint:#fff;
+--good:#0f7a52;--good-tint:#e6f6ee;--good-tint-border:#c3e6d5;
 --warning:#a35c0c;--warning-tint:#fdf4e6;--warning-tint-border:#f0dcb8;
 --critical:#c5364c;--critical-tint:#fdecef;--critical-tint-border:#f6c9d1;
---radius-sm:5px;--radius-md:8px;--radius-lg:12px;--radius-pill:999px;
---shadow-sm:0 1px 2px rgba(25,24,45,.04),0 4px 14px -6px rgba(25,24,45,.08);
---shadow-md:0 6px 26px -8px rgba(25,24,45,.14),0 2px 8px -4px rgba(25,24,45,.06);
-/* Brand faces load from Google; the stack behind them is what actually
-   renders if the instance is offline or firewalled, so it is a real stack,
-   not a bare fallback. */
+--fill:#7878801f;--fill-2:#78788014;
+--r-group:10px;--r-control:8px;--r-pill:980px;
 --font-body:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 --font-display:var(--font-body);
 --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 @media (prefers-color-scheme:dark){:root{
---page-bg:#0f0d17;--surface:#171523;--surface-sunken:#1e1b2e;--border:#2a2540;--border-strong:#3a3358;
---ring:rgba(139,124,240,.42);--text-primary:#efedf8;--text-secondary:#aaa4c4;--text-muted:#847da0;
---ink:#a06bff;--ink-hover:#b285ff;--ink-fg:#0f0d17;
---accent:#a06bff;--accent-strong:#bb98ff;--accent-tint:#221d3d;--accent-tint-border:#3a3163;
---good:#5fd3a3;--good-tint:#14291f;--good-tint-border:#245840;
---warning:#e2a44f;--warning-tint:#2b2113;--warning-tint-border:#5a4321;
---critical:#f0808f;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
---shadow-sm:0 1px 2px rgba(0,0,0,.3),0 4px 14px -6px rgba(0,0,0,.45);
---shadow-md:0 6px 26px -8px rgba(0,0,0,.55),0 2px 8px -4px rgba(0,0,0,.4)}}
+--canvas:#000;--group:#1c1c1e;
+--label:#f5f5f7;--label-2:#a1a1aa;--label-3:#8e8e93;
+--separator:#38383a;--separator-strong:#48484a;
+--tint:#a06bff;--tint-press:#b285ff;--tint-wash:#211a33;--on-tint:#0a0a0a;
+--good:#4fd39a;--good-tint:#12291f;--good-tint-border:#245840;
+--warning:#e0a457;--warning-tint:#2a2013;--warning-tint-border:#57411f;
+--critical:#ff7b8a;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
+--fill:#7878803d;--fill-2:#78788029}}
+
 *{box-sizing:border-box}
-body{font:15px/1.55 var(--font-body);margin:0;color:var(--text-primary);background:var(--page-bg)}
-.shell{max-width:880px;margin:0 auto;padding:1.25rem 1rem 4rem}
-nav{display:flex;align-items:center;gap:.25rem;background:var(--surface);border:1px solid var(--border);
-border-radius:var(--radius-pill);padding:.4rem .6rem;box-shadow:var(--shadow-sm);margin-bottom:2rem;
-overflow-x:auto;scrollbar-width:none}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--canvas);color:var(--label);
+font:17px/1.47 var(--font-body);-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+.shell{max-width:44rem;margin:0 auto;padding:0 1rem 5rem}
+
+/* Nav: translucent chrome that content scrolls under, as a navigation bar
+   does. Solid fallback where backdrop-filter is unsupported. */
+nav{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:.15rem;
+margin:0 -1rem 1.25rem;padding:.6rem 1rem;background:rgba(242,242,247,.82);
+backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+border-bottom:.5px solid var(--separator);overflow-x:auto;scrollbar-width:none}
 nav::-webkit-scrollbar{display:none}
-nav .brand{font-family:var(--font-display);font-weight:600;font-size:1.02rem;padding:.2rem .7rem;margin-right:auto;white-space:nowrap}
-nav .brand em{color:var(--accent-strong);font-style:normal}
-nav a{color:var(--text-secondary);text-decoration:none;padding:.35rem .8rem;border-radius:var(--radius-pill);
-font-weight:500;font-size:.92rem;white-space:nowrap}
-nav a:hover{background:var(--surface-sunken);color:var(--text-primary)}
-h1{font-family:var(--font-display);font-weight:500;font-size:1.75rem;line-height:1.2;margin:.2rem 0 .6rem;letter-spacing:-.025em}
-h2{font-family:var(--font-display);font-weight:500;font-size:1.2rem;margin:2rem 0 .6rem;letter-spacing:-.015em}
-p{color:var(--text-secondary)}p b{color:var(--text-primary)}
-.card,form,fieldset{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
-padding:1.1rem 1.25rem;box-shadow:var(--shadow-sm)}
-fieldset{margin:.75rem 0}legend{font-weight:600;color:var(--text-primary);padding:0 .4rem}
-ol{padding-left:0;list-style:none;counter-reset:step}
-ol>li{counter-increment:step;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
-padding:1rem 1.25rem 1rem 3.4rem;margin:.9rem 0;box-shadow:var(--shadow-sm);position:relative}
-ol>li::before{content:counter(step);position:absolute;left:1rem;top:1.05rem;width:1.7rem;height:1.7rem;
-background:var(--accent-tint);border:1px solid var(--accent-tint-border);color:var(--accent-strong);
-border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:.9rem}
-.chip{padding:2px 10px;border-radius:var(--radius-pill);font-size:.75rem;font-weight:600;vertical-align:middle;
-white-space:nowrap}
-.chip.active{background:var(--good-tint);color:var(--good);border:1px solid var(--good-tint-border)}
-.chip.stale{background:var(--warning-tint);color:var(--warning);border:1px solid var(--warning-tint-border)}
-.chip.error{background:var(--critical-tint);color:var(--critical);border:1px solid var(--critical-tint-border)}
-.chip.syncing,.chip.never_synced{background:var(--surface-sunken);color:var(--text-muted);border:1px solid var(--border-strong)}
-/* Stat tiles: numbers are the content, so they get the display face and
-   tabular figures - a column of stats must never wobble. */
-.tiles{display:flex;gap:.7rem;flex-wrap:wrap;margin:.6rem 0}
-.tile{flex:1 1 8rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.8rem 1rem}
-.tile b{display:block;font-family:var(--font-display);font-size:1.55rem;font-weight:500;letter-spacing:-.02em;line-height:1.1;
-font-variant-numeric:tabular-nums;color:var(--text-primary)}
-.tile span{font-size:.82rem;color:var(--text-muted)}
+@media (prefers-color-scheme:dark){nav{background:rgba(0,0,0,.7)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+nav{background:var(--canvas)}}
+nav .brand{font-weight:600;font-size:1.02rem;letter-spacing:-.02em;padding:.2rem .5rem .2rem 0;
+margin-right:auto;white-space:nowrap;color:var(--label)}
+nav .brand em{color:var(--tint);font-style:normal}
+nav a{color:var(--tint);text-decoration:none;padding:.35rem .6rem;border-radius:var(--r-control);
+font-size:.95rem;white-space:nowrap;min-height:38px;display:inline-flex;align-items:center}
+nav a:active{background:var(--fill-2)}
+
+h1{font-weight:600;font-size:1.95rem;line-height:1.15;letter-spacing:-.032em;margin:.6rem 0 .5rem}
+h2{font-weight:600;font-size:1.06rem;letter-spacing:-.015em;margin:2rem 0 .5rem;color:var(--label)}
+h3{font-weight:600;font-size:.95rem;margin:1.2rem 0 .3rem}
+p{color:var(--label-2);margin:.45rem 0}
+p b{color:var(--label)}
+small{color:var(--label-3);font-size:.83rem;line-height:1.4;display:inline-block}
+
+/* Grouped containers: white group on grey canvas, no border, no shadow. */
+.card,form,fieldset,table,pre,.tile{background:var(--group);border:none;
+border-radius:var(--r-group);box-shadow:none}
+.card,form{padding:1rem 1.05rem;margin:.6rem 0}
+fieldset{margin:.7rem 0;padding:.9rem 1.05rem;border:none}
+legend{font-weight:600;color:var(--label);padding:0;font-size:.95rem}
+
+/* Setup checklist as one inset grouped list, separators starting past the
+   numeral the way a list insets past an icon. */
+ol{padding:0;margin:.6rem 0;list-style:none;counter-reset:step;
+background:var(--group);border-radius:var(--r-group);overflow:hidden}
+ol>li{counter-increment:step;position:relative;padding:.95rem 1.05rem .95rem 3.1rem;
+border-bottom:.5px solid var(--separator);background:none;border-radius:0;margin:0;box-shadow:none}
+ol>li:last-child{border-bottom:none}
+ol>li::before{content:counter(step);position:absolute;left:1.05rem;top:.95rem;
+width:1.5rem;height:1.5rem;background:var(--tint);color:var(--on-tint);
+border-radius:50%;display:flex;align-items:center;justify-content:center;
+font-weight:600;font-size:.78rem}
+
+.chip{padding:.15rem .55rem;border-radius:var(--r-pill);font-size:.76rem;font-weight:600;
+vertical-align:middle;white-space:nowrap;letter-spacing:0}
+.chip.active{background:var(--good-tint);color:var(--good);border:.5px solid var(--good-tint-border)}
+.chip.stale{background:var(--warning-tint);color:var(--warning);border:.5px solid var(--warning-tint-border)}
+.chip.error{background:var(--critical-tint);color:var(--critical);border:.5px solid var(--critical-tint-border)}
+.chip.syncing,.chip.never_synced{background:var(--fill-2);color:var(--label-3);border:.5px solid var(--separator)}
+
+.tiles{display:flex;gap:.55rem;flex-wrap:wrap;margin:.6rem 0}
+.tile{flex:1 1 8rem;padding:.85rem .95rem}
+.tile b{display:block;font-size:1.6rem;font-weight:600;line-height:1.1;letter-spacing:-.03em;
+font-variant-numeric:tabular-nums;color:var(--label)}
+.tile span{font-size:.8rem;color:var(--label-3)}
 .tile.good b{color:var(--good)}.tile.warning b{color:var(--warning)}.tile.critical b{color:var(--critical)}
-/* Tables scroll rather than squash: a price the owner cannot read is worse
-   than a scrollbar. */
-.scroller{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--border);
-border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow-sm);font-size:.92rem}
-th{background:var(--surface-sunken);color:var(--text-muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
-td,th{border-bottom:1px solid var(--border);padding:.55rem .8rem;text-align:left}
-td{font-variant-numeric:tabular-nums}
+
+/* Tables become grouped lists: hairlines, quiet caption header, no shading. */
+.scroller{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r-group);background:var(--group)}
+table{border-collapse:collapse;width:100%;font-size:.94rem;overflow:hidden}
+th{background:none;color:var(--label-3);font-weight:500;font-size:.76rem;
+text-transform:uppercase;letter-spacing:.05em;padding:.7rem 1.05rem .4rem}
+td{padding:.72rem 1.05rem;color:var(--label-2);font-variant-numeric:tabular-nums}
+td,th{text-align:left;border-bottom:.5px solid var(--separator)}
+td:first-child{color:var(--label)}
 tr:last-child td{border-bottom:none}
-input,select,textarea{width:100%;padding:.55rem .8rem;margin:4px 0;border:1px solid var(--border-strong);
-border-radius:var(--radius-sm);font:inherit;background:var(--surface);color:var(--text-primary)}
-input::placeholder,textarea::placeholder{color:var(--text-muted)}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--ring);outline-offset:1px;border-color:var(--accent)}
-button{padding:.5rem 1rem;cursor:pointer;background:var(--ink);color:var(--ink-fg);border:none;
-border-radius:var(--radius-sm);font:inherit;font-weight:500;font-size:.87rem;transition:transform .06s ease}
-button:hover{background:var(--ink-hover)}
-button:active{transform:translateY(1px)}
-button:disabled{background:var(--border-strong);color:var(--text-muted);cursor:not-allowed;transform:none}
-button.ghost,p>button,td button{background:var(--accent-tint);color:var(--accent-strong);border:1px solid var(--accent-tint-border)}
-button.ghost:hover,p>button:hover,td button:hover{background:var(--accent-tint-border)}
-code{font-family:var(--font-mono);font-size:.85em;background:var(--surface-sunken);padding:.12rem .4rem;border-radius:6px}
-pre{font-family:var(--font-mono);font-size:.82rem;overflow-x:auto}
-a{color:var(--accent-strong)}
+
+input,select,textarea{width:100%;padding:.7rem .85rem;margin:.3rem 0;
+border:.5px solid var(--separator-strong);border-radius:var(--r-control);font:inherit;
+font-size:1rem;background:var(--group);color:var(--label);min-height:44px}
+input::placeholder,textarea::placeholder{color:var(--label-3)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--tint);
+box-shadow:0 0 0 3.5px color-mix(in srgb,var(--tint) 18%,transparent)}
+label{display:block;margin:.7rem 0;font-size:.95rem;color:var(--label)}
+
+/* Filled tint for the primary action, tinted grey for the rest. 44px minimum
+   because these get tapped on a phone. */
+button{padding:.62rem 1.1rem;cursor:pointer;background:var(--tint);color:var(--on-tint);border:none;
+border-radius:var(--r-control);font:inherit;font-weight:600;font-size:.94rem;min-height:44px;
+transition:transform .08s ease,opacity .12s ease}
+button:hover{background:var(--tint-press)}
+button:active{transform:scale(.97);opacity:.85}
+button:disabled{background:var(--fill);color:var(--label-3);cursor:not-allowed;transform:none}
+button.ghost,p>button,td button{background:var(--fill-2);color:var(--tint);border:none;font-weight:500}
+button.ghost:hover,p>button:hover,td button:hover{background:var(--fill)}
+
+code{font-family:var(--font-mono);font-size:.85em;background:var(--fill-2);padding:.12rem .38rem;
+border-radius:5px;color:var(--label)}
+pre{font-family:var(--font-mono);font-size:.8rem;padding:.9rem 1.05rem;overflow-x:auto;
+color:var(--label-2);line-height:1.55}
+a{color:var(--tint);text-decoration:none}
+a:hover{text-decoration:underline}
 .err{color:var(--critical)}
-.warn{background:var(--warning-tint);border:1px solid var(--warning-tint-border);color:var(--warning);padding:.6rem .9rem;border-radius:var(--radius-sm)}
-small{color:var(--text-muted)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-/* Work-in-progress feedback. Syncs take seconds; without this the owner
-   cannot tell a slow refresh from a dead button, and double-clicks it. */
-#bar{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent);transition:width .25s ease;z-index:9}
+.warn{background:var(--warning-tint);border:.5px solid var(--warning-tint-border);color:var(--warning);
+padding:.75rem .95rem;border-radius:var(--r-group);font-size:.92rem}
+details{background:var(--group);border-radius:var(--r-group);padding:.85rem 1.05rem;margin:1.2rem 0}
+details summary{cursor:pointer;color:var(--tint);font-weight:500}
+:focus-visible{outline:2.5px solid var(--tint);outline-offset:2px;border-radius:var(--r-control)}
+
+#bar{position:fixed;top:0;left:0;height:2.5px;width:0;background:var(--tint);
+transition:width .25s ease;z-index:9}
 body.busy #bar{width:75%}
-body.busy button{pointer-events:none;opacity:.55}
+body.busy button{pointer-events:none;opacity:.5}
 body.busy{cursor:progress}
-#toast{position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%) translateY(1rem);opacity:0;
-pointer-events:none;max-width:min(30rem,92vw);background:var(--surface);color:var(--text-primary);
-border:1px solid var(--border-strong);border-left:3px solid var(--critical);border-radius:var(--radius-md);
-padding:.7rem 1rem;box-shadow:var(--shadow-md);font-size:.92rem;transition:opacity .18s ease,transform .18s ease;z-index:10}
+/* Toast rises from the bottom like a system banner. */
+#toast{position:fixed;left:50%;bottom:1.1rem;transform:translateX(-50%) translateY(1.5rem);opacity:0;
+pointer-events:none;max-width:min(28rem,92vw);background:rgba(28,28,30,.94);color:#fff;
+backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+border-radius:14px;padding:.8rem 1.1rem;font-size:.94rem;line-height:1.4;
+transition:opacity .22s ease,transform .22s cubic-bezier(.16,1,.3,1);z-index:10}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-#toast.ok{border-left-color:var(--good)}
+#toast.ok{background:rgba(15,122,82,.95)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:560px){
-.shell{padding:1rem .75rem 3rem}h1{font-size:1.42rem}h2{font-size:1.06rem}
-ol>li{padding:.9rem 1rem .9rem 3rem}
+body{font-size:16px}
+.shell{padding:0 .85rem 4rem}
+h1{font-size:1.7rem}
 .tile{flex:1 1 100%}
-table{font-size:.86rem}td,th{padding:.5rem .6rem}
+td,th{padding:.65rem .85rem}
 }
 </style></head>
 <body><div id="bar"></div><div id="toast" role="status" aria-live="polite"></div>
