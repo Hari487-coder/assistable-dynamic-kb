@@ -4,6 +4,14 @@
 
 **Start here → [hari487-coder.github.io/assistable-dynamic-kb](https://hari487-coder.github.io/assistable-dynamic-kb/)** — the guided "deploy your own" page.
 
+> **Read this before you rely on it.** The one-click Render deploy is on Render's
+> **free** plan, which is great for trying it but **wipes its disk on every
+> redeploy** and sleeps after 15 idle minutes. That means your sources and
+> settings can reset, and a cold start can be slow on the first call. For real
+> customer traffic, run the **always-free VM path** (one command, keeps its
+> data) in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md). Either way, use the
+> **Download backup** button after any change.
+
 A standalone multi-tenant portal that gives Assistable voice + chat agents
 **live data** through custom tools. Users sign up, connect their Assistable v3
 API key, add a dynamic source (CSV / feed URL / website / Postgres), and the
