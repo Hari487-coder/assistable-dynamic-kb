@@ -25,9 +25,13 @@ All three end at the same place: an HTTPS URL running your Live KB.
    everything (free plan, health check, auto-generated encryption key; the
    public URL is auto-detected — zero env editing).
 3. Open the URL, sign up — you're the owner; signups then close.
-4. Keep it awake: add the URL to UptimeRobot (free) with a 5-minute check —
-   the free tier idles after 15 min and a cold start would make a voice agent
-   wait ~30-60s.
+4. Staying awake is automatic: the app pings its own `/healthz` every 10
+   minutes, which counts as traffic and stops Render's free tier idling out
+   after 15 min. So a shared link stays warm without any setup. (The one gap it
+   can't cover is a fully-stopped instance — right after a redeploy, or a crash;
+   the next visitor's request wakes that, one "Not Found" then fine. For belt
+   and suspenders you can still point UptimeRobot at the URL, or set
+   `KEEP_AWAKE=0` to turn the self-ping off.)
 5. ⚠ **Free-tier disk is ephemeral**: your sources/config reset when Render
    redeploys or restarts the instance. Fine for a pilot (re-upload the CSV);
    for durable data use Path B/C or attach a Render disk (paid).
@@ -181,7 +185,7 @@ Connection page.
 
 | Symptom | Cause / fix |
 |---|---|
-| Agent says "brief connection issue" | Assistable couldn't reach your URL: instance asleep (Render free — add the pinger), wrong `BASE_URL`, or firewall. Hit `<your-url>/healthz`. |
+| Agent says "brief connection issue" | Assistable couldn't reach your URL: instance still cold-booting after a redeploy/crash (Render free; the built-in self-ping keeps it warm once up), wrong `BASE_URL`, or firewall. Hit `<your-url>/healthz`. |
 | Tool created but agent never calls it | Prompt snippet missing, or a static KB is competing (step 5). |
 | Voice ignores new filter columns | Voice caches the tool schema at assistant-save — re-save the assistant in Assistable (the portal shows a banner when needed). |
 | "signups are closed" | `SIGNUPS=first-only` and an owner exists. That's the self-host default working as intended. |
