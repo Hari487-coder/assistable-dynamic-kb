@@ -65,6 +65,32 @@ auto-restart, and starts the app at `https://kb.yourdomain.com`. Data lives in
 
 ---
 
+## Why there is no "semantic / RAG" toggle (and no Supabase option)
+
+A five-lens design review concluded that poor website answers were three
+fixable bugs, not a missing embedding engine: the tool returned the head of a
+chunk instead of the matched sentence, chunks were sliced mid-sentence, and the
+synonym list was thin. All three are now fixed, in-process, at $0, with no
+change to the millisecond hot path.
+
+Embeddings (local `sqlite-vec`, or a "bring your own Supabase pgvector") were
+deliberately **not** added, for reasons that still hold:
+
+- A remote Supabase query would sit on the hot path *during a phone call*, and
+  free Supabase projects auto-pause after a week of inactivity, so a quiet
+  tenant's assistant would go dark mid-call.
+- Asking a non-technical owner to create a Supabase project and paste a
+  connection string is where they give up.
+- A semantic "fallback" trades a safe failure (the assistant says it does not
+  know) for an unsafe one (a confident, plausible, wrong chunk) — worse on
+  voice, where nobody can check a citation.
+
+Local embeddings remain a designed-but-unbuilt option, gated on evidence: the
+per-source **dead-end rate** in the quality panel. If, after these fixes, real
+callers keep asking questions that keyword search genuinely cannot answer, the
+path is an ingest-time, worker-thread-isolated, model-pre-baked re-ranker, not
+a hot-path network call. Not before.
+
 ## Where your Live KB lives (read this once)
 
 Your entire Live KB — account, sources, synced items, query logs — is **one

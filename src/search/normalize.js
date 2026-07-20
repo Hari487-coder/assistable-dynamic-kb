@@ -34,6 +34,20 @@ const SYNONYM_GROUPS = [
   ["cheap", "cheapest", "affordable", "budget"],
   ["buy", "purchase", "sell", "selling"],
   ["stock", "available", "availability", "inventory"],
+  // Small-business FAQ vocabulary: the questions a website source actually gets
+  // asked on a call. "same-day" vs "on the spot", "quote" vs "estimate", etc.
+  ["today", "same-day", "sameday", "immediately", "now", "spot", "walk-in", "walkin"],
+  ["quote", "quotes", "estimate", "estimates", "pricing"],
+  ["location", "address", "where", "directions", "located", "find"],
+  ["parking", "park", "lot"],
+  ["deposit", "downpayment", "upfront"],
+  ["cash", "card", "credit", "debit", "paypal"],
+  ["pickup", "pick-up", "collection", "collect"],
+  ["hours", "days", "weekend", "weekends", "sunday", "saturday", "holiday"],
+  ["insured", "insurance", "insure", "licensed", "certified", "bonded"],
+  ["discount", "deal", "deals", "offer", "offers", "promotion", "special"],
+  ["minimum", "min", "smallest", "least"],
+  ["contact", "email", "message", "text", "whatsapp"],
 ];
 const SYNONYMS = new Map();
 for (const group of SYNONYM_GROUPS) for (const word of group) SYNONYMS.set(word, group);

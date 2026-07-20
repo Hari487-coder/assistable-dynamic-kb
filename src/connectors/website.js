@@ -1,7 +1,43 @@
 import * as cheerio from "cheerio";
 import { safeFetch } from "../ssrf-guard.js";
 
-const CHUNK_TARGET = 1500;
+const CHUNK_TARGET = 700;
+
+// Pack text into chunks that break on sentence boundaries near the target, so
+// an answer is never severed mid-sentence and each chunk is a coherent unit
+// BM25 can score. Blind character slicing (the old behaviour) split words and
+// scattered one answer across two chunks.
+function packSentences(text, target = CHUNK_TARGET) {
+  // Protect decimals ("0.9%") and dotted abbreviations before splitting so a
+  // full stop between digits is not mistaken for a sentence end, then restore.
+  const DOT = ""; // private-use sentinel, never present in scraped text
+  const guarded = text.replace(/(\d)\.(\d)/g, `$1${DOT}$2`);
+  const sentences = (guarded.match(/[^.!?]+[.!?]+|\S[^.!?]*$/g) ?? [guarded])
+    .map((s) => s.replaceAll(DOT, "."));
+  const out = [];
+  let buf = "";
+  for (const raw of sentences) {
+    const s = raw.trim();
+    if (!s) continue;
+    if (buf && (buf.length + 1 + s.length) > target) { out.push(buf); buf = ""; }
+    // A single sentence longer than the target still gets hard-split, but on a
+    // word boundary rather than mid-word.
+    if (s.length > target) {
+      if (buf) { out.push(buf); buf = ""; }
+      const words = s.split(/\s+/);
+      let piece = "";
+      for (const w of words) {
+        if (piece && (piece.length + 1 + w.length) > target) { out.push(piece); piece = ""; }
+        piece = piece ? `${piece} ${w}` : w;
+      }
+      if (piece) buf = piece;
+    } else {
+      buf = buf ? `${buf} ${s}` : s;
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
 
 function parseRobots(text) {
   const lines = String(text).split("\n").map((l) => l.trim());
@@ -25,8 +61,8 @@ function pageChunks(url, html) {
   const flush = () => {
     const content = buf.join(" ").replace(/\s+/g, " ").trim();
     if (content) {
-      for (let i = 0; i < content.length; i += CHUNK_TARGET) {
-        chunks.push({ page_url: url, heading, content: content.slice(i, i + CHUNK_TARGET) });
+      for (const piece of packSentences(content)) {
+        chunks.push({ page_url: url, heading, content: piece });
       }
     }
     buf = [];
