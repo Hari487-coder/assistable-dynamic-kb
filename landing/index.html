@@ -100,23 +100,33 @@ td:first-child{color:var(--ink);font-weight:500}
 td.yes{color:var(--ink)}
 .scroller{overflow-x:auto}
 
-/* Steps: a list, not three cards. */
-/* Start-to-finish flow: a numbered list where steps 1-2 carry action buttons
-   and 3-5 describe what happens on the user's own instance. Filled violet
-   numerals in circles so the sequence reads at a glance. */
+/* Three steps, not five. Each step is one bold line and one short sentence,
+   so the whole thing scans in a couple of seconds. Filled violet numerals in
+   circles so the sequence reads at a glance; the only fork (Render trouble)
+   is folded into a closed <details> below so the happy path stays clean. */
 ol.flow{list-style:none;counter-reset:f;margin:1.2rem 0 0;padding:0}
-ol.flow li{counter-increment:f;position:relative;padding:0 0 1.7rem 2.7rem;max-width:60ch}
+ol.flow li{counter-increment:f;position:relative;padding:0 0 1.9rem 2.9rem;max-width:56ch}
 ol.flow li:last-child{padding-bottom:0}
-ol.flow li:not(:last-child)::after{content:"";position:absolute;left:.83rem;top:2.05rem;bottom:.3rem;
+ol.flow li:not(:last-child)::after{content:"";position:absolute;left:.9rem;top:2.35rem;bottom:.3rem;
 width:1.5px;background:var(--rule-2)}
-ol.flow li::before{content:counter(f);position:absolute;left:0;top:0;width:1.7rem;height:1.7rem;
+ol.flow li::before{content:counter(f);position:absolute;left:0;top:0;width:1.85rem;height:1.85rem;
 background:var(--violet);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;
-font-weight:600;font-size:.82rem;font-family:var(--font-mono)}
-ol.flow>li>b{display:block;color:var(--ink);font-weight:600;margin-bottom:.25rem}
-ol.flow span b,ol.flow small b{color:var(--ink);font-weight:600}
-ol.flow span{display:block;color:var(--ink-2);font-size:.97rem;margin-bottom:.7rem}
+font-weight:600;font-size:.9rem;font-family:var(--font-mono)}
+ol.flow>li>b{display:block;color:var(--ink);font-weight:600;font-size:1.08rem;margin-bottom:.2rem;
+padding-top:.15rem}
+ol.flow span{display:block;color:var(--ink-2);font-size:.98rem;line-height:1.55;margin-bottom:.8rem}
+ol.flow .btns{display:flex;gap:.6rem;flex-wrap:wrap}
 ol.flow .go{margin:0}
-ol.flow small{display:block;color:var(--ink-3);margin-top:.7rem;font-size:.85rem;line-height:1.5}
+
+/* Quiet escape hatch: complexity lives here, closed by default. */
+details.trouble{margin-top:1.9rem;font-size:.92rem}
+details.trouble summary{cursor:pointer;color:var(--violet);font-weight:500;list-style:none;
+padding:.2rem 0;-webkit-tap-highlight-color:transparent}
+details.trouble summary::-webkit-details-marker{display:none}
+details.trouble summary::before{content:"+ ";font-family:var(--font-mono)}
+details.trouble[open] summary::before{content:"\2212  "}
+details.trouble p{color:var(--ink-2);line-height:1.6;max-width:60ch;margin:.7rem 0 0}
+details.trouble p b{color:var(--ink);font-weight:600}
 
 .aside{border-left:3px solid var(--violet);padding:.1rem 0 .1rem 1.1rem;color:var(--ink-2);
 font-size:.97rem;max-width:58ch;background:var(--violet-wash);border-radius:12px;
@@ -160,7 +170,7 @@ section{padding:1.5rem 1.15rem}
   <h1>Your AI agent, with live data.</h1>
   <p class="lede">A knowledge base you own, that your Assistable agents query
   mid-conversation. Inventory, prices, availability: current, not last quarter's upload.</p>
-  <p style="margin:0 0 1.9rem"><a class="go" href="#start">See how it works, then deploy</a></p>
+  <p style="margin:0 0 1.9rem"><a class="go" href="#start">Set it up in three steps</a></p>
   <ul class="facts">
     <li><b>16ms</b> typical lookup, inside a live phone call</li>
     <li><b>SQL filters</b> on your real columns, not similarity guesses</li>
@@ -206,47 +216,37 @@ section{padding:1.5rem 1.15rem}
 </section>
 
 <section id="start">
-  <h2>How it works, start to finish</h2>
-  <p class="say">Five steps, about five minutes. The first two are on this page. The rest happen
-  on your own instance, and it walks you through them.</p>
+  <h2>Set it up in three steps</h2>
+  <p class="say">About five minutes, no code. Your own instance walks you through the rest.</p>
   <ol class="flow">
     <li>
-      <b>Create your free Render account.</b>
-      <span>Render hosts your instance for free. Sign up with Google, about thirty seconds. Do
-      this <em>before</em> Step 2, so the deploy is not lost when your account is created.</span>
-      <a class="go" href="https://render.com/register" target="_blank" rel="noopener">Create Render account</a>
+      <b>Get your free copy running.</b>
+      <span>Make a free Render account, then deploy. It sets itself up, about two minutes.</span>
+      <div class="btns">
+        <a class="go" href="https://render.com/register" target="_blank" rel="noopener">1. Create Render account</a>
+        <a class="go ghost" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">2. Then deploy</a>
+      </div>
     </li>
     <li>
-      <b>Deploy Live KB.</b>
-      <span>Come back to this page, signed in, and click Deploy. It builds your own instance in
-      about two minutes: you will see one service called <b>live-kb</b> go <b>Live</b> (green).
-      Nothing to configure, the key and address set themselves.</span>
-      <a class="go ghost" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy Live KB</a>
-      <small>Landing on a blank Render dashboard instead? Click <b>New</b>, then <b>Blueprint</b>,
-      then paste this under "Public Git Repository": github.com/Hari487-coder/assistable-dynamic-kb</small>
+      <b>Connect your data.</b>
+      <span>Open your new page, paste your Assistable key, add your prices, feed or website, and
+      tick your assistants. The tool is built for you.</span>
     </li>
     <li>
-      <b>Open it and create your owner account.</b>
-      <span>Click your new instance's link and sign up. The first account claims it, so it is
-      yours alone, and so is the data. No one else can get in.</span>
-    </li>
-    <li>
-      <b>Connect your data, pick your assistants.</b>
-      <span>Paste your Assistable key, add a spreadsheet, feed, website or database, and tick which
-      assistants should use it. Live KB creates the tool in your Assistable account and attaches it
-      for you. Nothing to build.</span>
-    </li>
-    <li>
-      <b>Paste one line into your assistant, then test it.</b>
-      <span>The setup page hands you a prompt line to copy in, and a Try-it box on the same page.
-      Ask it something only your data knows and watch it answer, then call your assistant for real.
-      Every question shows up in your dashboard so you can see it working.</span>
+      <b>Your agent answers live.</b>
+      <span>It now looks up your real data on every call and chat. Try it right on the page,
+      then go live.</span>
     </li>
   </ol>
-  <p class="aside" style="margin-top:2rem"><b>About the free plan.</b> Render's free tier sleeps
-  after fifteen idle minutes and wipes its disk on redeploys, which is fine while you are trying
-  it. For real customer calls, the always-free VM path in the docs is one command and keeps its
-  data.</p>
+  <details class="trouble">
+    <summary>Deploy not going through on Render?</summary>
+    <p>Make the Render account <em>first</em> (button 1), then come back and click deploy. If you
+    still land on a blank dashboard, in Render click <b>New</b>, then <b>Blueprint</b>, then paste
+    this under "Public Git Repository": github.com/Hari487-coder/assistable-dynamic-kb</p>
+    <p><b>Free plan note:</b> Render's free tier sleeps after fifteen idle minutes and wipes its
+    disk on redeploys, which is fine for trying it. For real customer calls, the always-free VM
+    path in the docs keeps its data.</p>
+  </details>
 </section>
 
 <section class="faq">
