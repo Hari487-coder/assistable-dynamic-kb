@@ -101,13 +101,22 @@ td.yes{color:var(--ink)}
 .scroller{overflow-x:auto}
 
 /* Steps: a list, not three cards. */
-ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}
-ol.steps li{counter-increment:s;position:relative;padding:0 0 1.5rem 2.4rem;max-width:56ch}
-ol.steps li:last-child{padding-bottom:0}
-ol.steps li::before{content:counter(s);position:absolute;left:0;top:.15rem;
-font-family:var(--font-mono);font-size:.8rem;color:var(--violet)}
-ol.steps b{display:block;color:var(--ink);font-weight:500;margin-bottom:.15rem}
-ol.steps span{color:var(--ink-2);font-size:.97rem}
+/* Start-to-finish flow: a numbered list where steps 1-2 carry action buttons
+   and 3-5 describe what happens on the user's own instance. Filled violet
+   numerals in circles so the sequence reads at a glance. */
+ol.flow{list-style:none;counter-reset:f;margin:1.2rem 0 0;padding:0}
+ol.flow li{counter-increment:f;position:relative;padding:0 0 1.7rem 2.7rem;max-width:60ch}
+ol.flow li:last-child{padding-bottom:0}
+ol.flow li:not(:last-child)::after{content:"";position:absolute;left:.83rem;top:2.05rem;bottom:.3rem;
+width:1.5px;background:var(--rule-2)}
+ol.flow li::before{content:counter(f);position:absolute;left:0;top:0;width:1.7rem;height:1.7rem;
+background:var(--violet);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;
+font-weight:600;font-size:.82rem;font-family:var(--font-mono)}
+ol.flow>li>b{display:block;color:var(--ink);font-weight:600;margin-bottom:.25rem}
+ol.flow span b,ol.flow small b{color:var(--ink);font-weight:600}
+ol.flow span{display:block;color:var(--ink-2);font-size:.97rem;margin-bottom:.7rem}
+ol.flow .go{margin:0}
+ol.flow small{display:block;color:var(--ink-3);margin-top:.7rem;font-size:.85rem;line-height:1.5}
 
 .aside{border-left:3px solid var(--violet);padding:.1rem 0 .1rem 1.1rem;color:var(--ink-2);
 font-size:.97rem;max-width:58ch;background:var(--violet-wash);border-radius:12px;
@@ -151,14 +160,7 @@ section{padding:1.5rem 1.15rem}
   <h1>Your AI agent, with live data.</h1>
   <p class="lede">A knowledge base you own, that your Assistable agents query
   mid-conversation. Inventory, prices, availability: current, not last quarter's upload.</p>
-  <div class="start">
-    <a class="go" href="https://render.com/register" target="_blank" rel="noopener">Step 1: Create your free Render account</a>
-    <a class="go ghost" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Step 2: Deploy Live KB</a>
-  </div>
-  <p class="starthint"><b>Do Step 1 first.</b> Sign up with Google, about thirty seconds, then close
-  that tab and come back here. Now click Step 2 while you are signed in, and it deploys in about
-  two minutes. Doing them in this order is the whole trick.</p>
-  <a class="text-link" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">Read the docs</a>
+  <p style="margin:0 0 1.9rem"><a class="go" href="#start">See how it works, then deploy</a></p>
   <ul class="facts">
     <li><b>16ms</b> typical lookup, inside a live phone call</li>
     <li><b>SQL filters</b> on your real columns, not similarity guesses</li>
@@ -203,25 +205,48 @@ section{padding:1.5rem 1.15rem}
   </div>
 </section>
 
-<section>
-  <h2>Running in about five minutes</h2>
-  <ol class="steps">
-    <li><b>Deploy it</b> (the two buttons at the top).<span>Step 1 makes your free Render account,
-    Step 2 deploys. Because you are signed in from Step 1, it opens a screen showing one service
-    called <b>live-kb</b>. Give it any name, click <b>Apply</b>, and wait two to three minutes for
-    the green <b>Live</b> badge. Nothing to configure: the key and address set themselves.
-    <br><small style="color:var(--ink-3)">Still landing on a blank dashboard? In Render click
-    <b>New</b>, then <b>Blueprint</b>, then paste this under "Public Git Repository":
-    github.com/Hari487-coder/assistable-dynamic-kb</small></span></li>
-    <li><b>Open it and create your account.</b><span>Click your new instance's link and sign up.
-    Sign-ups close behind you, so the instance is yours alone, and so is the data.</span></li>
-    <li><b>Connect your data.</b><span>Paste your Assistable key, add a spreadsheet, feed,
-    website or database, and tick which assistants get it. The tool is created for you.</span></li>
+<section id="start">
+  <h2>How it works, start to finish</h2>
+  <p class="say">Five steps, about five minutes. The first two are on this page. The rest happen
+  on your own instance, and it walks you through them.</p>
+  <ol class="flow">
+    <li>
+      <b>Create your free Render account.</b>
+      <span>Render hosts your instance for free. Sign up with Google, about thirty seconds. Do
+      this <em>before</em> Step 2, so the deploy is not lost when your account is created.</span>
+      <a class="go" href="https://render.com/register" target="_blank" rel="noopener">Create Render account</a>
+    </li>
+    <li>
+      <b>Deploy Live KB.</b>
+      <span>Come back to this page, signed in, and click Deploy. It builds your own instance in
+      about two minutes: you will see one service called <b>live-kb</b> go <b>Live</b> (green).
+      Nothing to configure, the key and address set themselves.</span>
+      <a class="go ghost" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy Live KB</a>
+      <small>Landing on a blank Render dashboard instead? Click <b>New</b>, then <b>Blueprint</b>,
+      then paste this under "Public Git Repository": github.com/Hari487-coder/assistable-dynamic-kb</small>
+    </li>
+    <li>
+      <b>Open it and create your owner account.</b>
+      <span>Click your new instance's link and sign up. The first account claims it, so it is
+      yours alone, and so is the data. No one else can get in.</span>
+    </li>
+    <li>
+      <b>Connect your data, pick your assistants.</b>
+      <span>Paste your Assistable key, add a spreadsheet, feed, website or database, and tick which
+      assistants should use it. Live KB creates the tool in your Assistable account and attaches it
+      for you. Nothing to build.</span>
+    </li>
+    <li>
+      <b>Paste one line into your assistant, then test it.</b>
+      <span>The setup page hands you a prompt line to copy in, and a Try-it box on the same page.
+      Ask it something only your data knows and watch it answer, then call your assistant for real.
+      Every question shows up in your dashboard so you can see it working.</span>
+    </li>
   </ol>
-  <p class="aside" style="margin-top:2rem"><b>About the free plan.</b> Render's free tier
-  sleeps after fifteen idle minutes and wipes its disk on redeploys, which is fine while you
-  are trying it. For real customer calls, the always-free VM path in the docs is one command
-  and keeps its data.</p>
+  <p class="aside" style="margin-top:2rem"><b>About the free plan.</b> Render's free tier sleeps
+  after fifteen idle minutes and wipes its disk on redeploys, which is fine while you are trying
+  it. For real customer calls, the always-free VM path in the docs is one command and keeps its
+  data.</p>
 </section>
 
 <section class="faq">
