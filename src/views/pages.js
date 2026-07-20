@@ -25,15 +25,6 @@ export function layoutPage(title, body) {
 --font-body:Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 --font-display:var(--font-body);
 --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
-@media (prefers-color-scheme:dark){:root{
---canvas:#000;--group:#1c1c1e;
---label:#f5f5f7;--label-2:#a1a1aa;--label-3:#8e8e93;
---separator:#38383a;--separator-strong:#48484a;
---tint:#a06bff;--tint-press:#b285ff;--tint-wash:#211a33;--on-tint:#0a0a0a;
---good:#4fd39a;--good-tint:#12291f;--good-tint-border:#245840;
---warning:#e0a457;--warning-tint:#2a2013;--warning-tint-border:#57411f;
---critical:#ff7b8a;--critical-tint:#2d1519;--critical-tint-border:#5d2a32;
---fill:#7878803d;--fill-2:#78788029}}
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -48,7 +39,6 @@ margin:0 -1rem 1.25rem;padding:.6rem 1rem;background:rgba(242,242,247,.82);
 backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
 border-bottom:.5px solid var(--separator);overflow-x:auto;scrollbar-width:none}
 nav::-webkit-scrollbar{display:none}
-@media (prefers-color-scheme:dark){nav{background:rgba(0,0,0,.7)}}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
 nav{background:var(--canvas)}}
 nav .brand{font-weight:600;font-size:1.02rem;letter-spacing:-.02em;padding:.2rem .5rem .2rem 0;
