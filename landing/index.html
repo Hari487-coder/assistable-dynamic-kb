@@ -49,6 +49,11 @@ h1{font-family:var(--font-display);font-weight:500;margin:0 0 1.1rem;color:var(-
 font-size:clamp(2.4rem,6.4vw,3.5rem);line-height:1.04;letter-spacing:-.035em;max-width:15ch}
 .lede{font-size:1.14rem;line-height:1.65;color:var(--ink-2);max-width:38ch;margin:0 0 2.2rem}
 .actions{display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap}
+.start{display:flex;gap:.7rem;flex-wrap:wrap;margin:0 0 1rem}
+.starthint{font-size:.96rem;color:var(--ink-2);max-width:48ch;margin:0 0 1.4rem;line-height:1.6}
+.starthint b{color:var(--ink)}
+.go.ghost{background:transparent;color:var(--violet);border:1.5px solid var(--violet);box-shadow:none}
+.go.ghost:hover{background:var(--violet-wash)}
 .go{display:inline-block;background:var(--violet);color:#fff;text-decoration:none;font-weight:600;
 font-size:.95rem;padding:.75rem 1.35rem;border-radius:var(--r-control);min-height:44px;
 display:inline-flex;align-items:center;
@@ -146,10 +151,14 @@ section{padding:1.5rem 1.15rem}
   <h1>Your AI agent, with live data.</h1>
   <p class="lede">A knowledge base you own, that your Assistable agents query
   mid-conversation. Inventory, prices, availability: current, not last quarter's upload.</p>
-  <div class="actions">
-    <a class="go" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Deploy free</a>
-    <a class="text-link" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">Read the docs</a>
+  <div class="start">
+    <a class="go" href="https://render.com/register" target="_blank" rel="noopener">Step 1: Create your free Render account</a>
+    <a class="go ghost" href="https://render.com/deploy?repo=https://github.com/Hari487-coder/assistable-dynamic-kb">Step 2: Deploy Live KB</a>
   </div>
+  <p class="starthint"><b>Do Step 1 first.</b> Sign up with Google, about thirty seconds, then close
+  that tab and come back here. Now click Step 2 while you are signed in, and it deploys in about
+  two minutes. Doing them in this order is the whole trick.</p>
+  <a class="text-link" href="https://github.com/Hari487-coder/assistable-dynamic-kb#readme">Read the docs</a>
   <ul class="facts">
     <li><b>16ms</b> typical lookup, inside a live phone call</li>
     <li><b>SQL filters</b> on your real columns, not similarity guesses</li>
@@ -197,14 +206,10 @@ section{padding:1.5rem 1.15rem}
 <section>
   <h2>Running in about five minutes</h2>
   <ol class="steps">
-    <li><b>Make a free Render account first.</b><span>Go to
-    <a href="https://render.com/register">render.com</a> and sign up with Google. Takes about
-    thirty seconds. Doing this <em>before</em> you deploy avoids the one hiccup people hit, where
-    signing up mid-deploy drops you on an empty dashboard.</span></li>
-    <li><b>Deploy.</b><span>Come back and click <b>Deploy free</b> at the top. Because you are
-    already signed in, it opens a screen showing one service called <b>live-kb</b>. Give it any
-    name, click <b>Apply</b>, and wait two to three minutes for the green <b>Live</b> badge.
-    Nothing to configure: the key and address set themselves.
+    <li><b>Deploy it</b> (the two buttons at the top).<span>Step 1 makes your free Render account,
+    Step 2 deploys. Because you are signed in from Step 1, it opens a screen showing one service
+    called <b>live-kb</b>. Give it any name, click <b>Apply</b>, and wait two to three minutes for
+    the green <b>Live</b> badge. Nothing to configure: the key and address set themselves.
     <br><small style="color:var(--ink-3)">Still landing on a blank dashboard? In Render click
     <b>New</b>, then <b>Blueprint</b>, then paste this under "Public Git Repository":
     github.com/Hari487-coder/assistable-dynamic-kb</small></span></li>
