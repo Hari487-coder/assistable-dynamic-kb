@@ -48,11 +48,12 @@ export function buildApp(deps) {
   }));
   app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true }));
   // The new-source form sends the CSV as csv_text inside a JSON body; the
-  // schema promises 5MB, so a 256kb parser cap here turned any real inventory
-  // export into a bare 413. Everything else stays small.
-  const bigJson = express.json({ limit: "6mb" });
+  // schema promises 5MB, so a 256kb cap turned any real inventory export into a
+  // bare 413. That one route parses big bodies itself, INSIDE the router and
+  // after requireUser, so an unauthenticated caller can never make us buffer
+  // megabytes. Everything else stays small and is parsed here.
   const smallJson = express.json({ limit: "256kb" });
-  app.use((req, res, next) => (req.path === "/sources/new" ? bigJson : smallJson)(req, res, next));
+  app.use((req, res, next) => (req.path === "/sources/new" ? next() : smallJson(req, res, next)));
   app.use(cookieParser);
   app.use(createToolApiRouter({ db, logger, config, connectors }));
   app.use(createDashboardRouter({ db, config, logger, connectors, makeClient }));

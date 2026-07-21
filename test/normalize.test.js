@@ -23,6 +23,15 @@ test("parseNumericLike: currency-prefixed prices (UK/EU/Wikipedia styles)", () =
   assert.equal(parseNumericLike("US1"), null);
 });
 
+// detectCurrency advertises A$ and CA$, so the parser has to accept both or an
+// AUD price column silently demotes to text - the exact bug fixed for GBP.
+test("parseNumericLike: dollar-symbol currencies parse to the same number", () => {
+  assert.equal(parseNumericLike("A$99"), 99);
+  assert.equal(parseNumericLike("CA$99"), 99);
+  assert.equal(parseNumericLike("AUD 1,499.50"), 1499.5);
+  assert.equal(parseNumericLike("NZ$25"), 25);
+});
+
 const rows = [
   { make: "Toyota", model: "Tacoma", year: "2022", price: "$28,500", vin: "V1" },
   { make: "Toyota", model: "Tundra", year: "2023", price: "$41,000", vin: "V2" },

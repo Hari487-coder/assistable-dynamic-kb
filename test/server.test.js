@@ -42,3 +42,22 @@ test("a real-world CSV (>256KB) uploads through /sources/new without a 413", asy
   assert.equal(out.ok, true);
   srv.close();
 });
+
+// The 6MB parser must sit behind requireUser, so a stranger can never make the
+// process buffer megabytes. If auth ran after parsing we'd see 413 here.
+test("an unauthenticated oversized POST to /sources/new is rejected by auth, not parsed", async () => {
+  const app = buildApp({
+    db: openDb(":memory:"),
+    config: { encryptionKey: Buffer.alloc(32, 1).toString("base64"), baseUrl: "http://t", dataDir: "./data", nodeEnv: "test", mockAssistable: true, port: 0, signups: "open" },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const srv = app.listen(0);
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const res = await fetch(`${base}/sources/new`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-requested-with": "kb-bridge" },
+    body: JSON.stringify({ type: "csv", name: "x", csv_text: "y".repeat(7 * 1024 * 1024) }),
+  });
+  assert.equal(res.status, 401, "auth must run before the body is parsed");
+  srv.close();
+});

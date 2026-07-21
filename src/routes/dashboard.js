@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, json } from "express";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -186,7 +186,10 @@ export function createDashboardRouter(deps) {
     res.send(pages.newSourcePage(assistants, !client));
   });
 
-  router.post("/sources/new", guard, upload.single("csv_file"), async (req, res) => {
+  // Parsed here rather than app-wide: a 6MB buffer is only ever allocated for a
+  // caller who already passed requireUser.
+  const csvJson = json({ limit: "6mb" });
+  router.post("/sources/new", guard, csvJson, upload.single("csv_file"), async (req, res) => {
     const parsed = SOURCE_BODY.safeParse({ ...req.body, csv_text: req.file ? req.file.buffer.toString("utf8") : req.body?.csv_text });
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.issues[0].message });
     const b = parsed.data;

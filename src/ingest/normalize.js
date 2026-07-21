@@ -5,7 +5,9 @@ export function parseNumericLike(v) {
   // "£7.20", "US$143,000,000", "GBP 7.20": one un-parsed currency style on a
   // price column demotes the whole column to text (no filters, no quartiles),
   // so strip code/symbol prefixes before deciding numeric-ness.
-  s = s.replace(/^(usd|gbp|eur|inr|aud|cad|nzd)\s*(?=[\d$£€₹])|^(us|au|ca|nz)(?=\$)/, "");
+  // "a" last so the two-letter codes win the alternation: A$ is the form AUD
+  // actually ships in, and detectCurrency already claims to recognise it.
+  s = s.replace(/^(usd|gbp|eur|inr|aud|cad|nzd)\s*(?=[\d$£€₹])|^(us|au|ca|nz|a)(?=\$)/, "");
   let mult = 1;
   if (/^[$£€₹]?[\d,.]+\s*k$/.test(s)) { mult = 1000; s = s.replace(/k$/, ""); }
   s = s.replace(/[$£€₹,\s]/g, "").replace(/(km|mi|miles|kms)$/g, "");
