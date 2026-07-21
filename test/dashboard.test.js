@@ -35,6 +35,23 @@ test("signup -> login -> connect (mock) -> create csv source -> tool provisioned
   assert.match(tool.tool_id, /^mock-tool-/);
 });
 
+test("re-submitting the same source name is a 409, not a duplicate", async () => {
+  let res = await post("/signup", { email: "dup@d.co", password: "longenough1" });
+  const cookie = res.headers.get("set-cookie").split(";")[0];
+  const body = {
+    type: "csv", name: "Scrap Prices", schedule_minutes: 1440,
+    csv_text: "material,price\nCopper,\"£7.20\"", assistant_ids: [],
+  };
+  res = await post("/sources/new", body, cookie);
+  assert.equal((await res.json()).ok, true);
+  res = await post("/sources/new", body, cookie);
+  assert.equal(res.status, 409, "the six-identical-sources incident must be impossible");
+  const out = await res.json();
+  assert.match(out.error, /already have a source/i);
+  const count = t.db.prepare("SELECT count(*) c FROM sources WHERE name = 'Scrap Prices'").get().c;
+  assert.equal(count, 1);
+});
+
 test("CSRF: mutation without header is rejected", async () => {
   const res = await fetch(`${t.base}/sources/new`, {
     method: "POST", redirect: "manual", headers: { "content-type": "application/json" }, body: "{}",

@@ -47,6 +47,21 @@ test("webtable end-to-end: 'what do you pay for copper' answers from live table"
   assert.equal(cat.resultCount, 4);
 });
 
+test("webtable: header markup (style/footnotes) never becomes a column name", async () => {
+  const html = `<html><body><table>
+    <tr>
+      <th><style>.mw-parser-output .tooltip-dotted{border-bottom:1px dotted}</style>Car</th>
+      <th>Price<sup>[a]</sup></th>
+      <th><style>.mw-parser-output .other-junk{color:red}</style></th>
+    </tr>
+    <tr><td>Ferrari 250 GTO</td><td>US$70,000,000</td><td>x</td></tr>
+    <tr><td>Mercedes 300 SLR</td><td>US$143,000,000</td><td>y</td></tr>
+  </table></body></html>`;
+  const { rows } = await fetchWebTableRows({ url: "https://x.example.com" }, { fetchImpl: async () => htmlRes(html) });
+  assert.equal(rows.length, 2);
+  assert.deepEqual(Object.keys(rows[0]), ["car", "price", "col_3"]);
+});
+
 test("webtable rejects non-HTML and table-less pages", async () => {
   await assert.rejects(
     fetchWebTableRows({ url: "https://x.example.com/x.pdf" }, { fetchImpl: async () => htmlRes("%PDF-1.4", "application/pdf") }),

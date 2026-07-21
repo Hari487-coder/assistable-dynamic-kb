@@ -130,6 +130,11 @@ details{background:var(--group);border-radius:var(--r-group);padding:.85rem 1.05
 details summary{cursor:pointer;color:var(--tint);font-weight:500}
 :focus-visible{outline:2.5px solid var(--tint);outline-offset:2px;border-radius:var(--r-control)}
 
+/* "Try it" output: the speech line reads as a quote, matches as cards. */
+.say{font-size:1.02rem;color:var(--label);font-style:italic;margin:.3rem 0 .6rem}
+.result-card{background:var(--fill-2);border-radius:var(--r-control);padding:.6rem .8rem;margin:.45rem 0}
+.result-card b{letter-spacing:-.01em}
+
 #bar{position:fixed;top:0;left:0;height:2.5px;width:0;background:var(--tint);
 transition:width .25s ease;z-index:9}
 body.busy #bar{width:75%}
@@ -170,6 +175,7 @@ async function api(path, body){
   document.body.classList.add('busy');
   try {
     const r = await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-requested-with':'kb-bridge'},body:JSON.stringify(body)});
+    if (r.status === 401) { toast('Your session expired - logging you back in.'); setTimeout(()=>location='/login', 900); return {ok:false,error:'session expired'}; }
     const out = await r.json().catch(()=>({ok:false,error:'Something went wrong (HTTP '+r.status+'). Try again.'}));
     if(!out.ok && out.error) toast(out.error);
     return out;
@@ -181,18 +187,45 @@ async function api(path, body){
   }
 }
 function formJson(f){const o={};new FormData(f).forEach((v,k)=>{o[k]=v});return o}
+// The "Try it" answer, rendered the way the owner thinks about it: what the
+// assistant would SAY, which filters it applied, and the matching items -
+// with the raw JSON tucked behind a developer toggle instead of being the UI.
+function renderKbResult(el, out){
+  const esc = s => String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  el.style.display = 'block';
+  if (!out || out.ok === false) { el.innerHTML = '<p class="err">'+esc((out && out.error) || 'No response.')+'</p>'; return; }
+  let h = '';
+  if (out.speech_hint) h += '<p class="say">&ldquo;'+esc(out.speech_hint)+'&rdquo;</p>';
+  const chips = Object.entries(out.applied_filters || {}).map(([k,v]) => '<span class="chip active">'+esc(k)+' = '+esc(v)+'</span>').join(' ');
+  if (chips) h += '<p>'+chips+'</p>';
+  const items = (out.items && out.items.length ? out.items : out.close_alternatives) || [];
+  h += items.map(it => {
+    const rows = Object.entries(it).filter(([k,v]) => k !== 'title' && v !== null && v !== '').slice(0,4)
+      .map(([k,v]) => '<small>'+esc(k)+': '+esc(v)+'</small>').join('<br>');
+    return '<div class="result-card"><b>'+esc(it.title || '')+'</b>'+(rows ? '<br>'+rows : '')+'</div>';
+  }).join('');
+  if (typeof out.result_count === 'number' && out.result_count > items.length) {
+    h += '<p><small>'+out.result_count+' matches in total; showing the top '+items.length+'.</small></p>';
+  }
+  if (out.relaxations && out.relaxations.length) h += '<p><small>'+out.relaxations.map(esc).join('<br>')+'</small></p>';
+  h += '<details><summary>Raw response (for developers)</summary><pre style="white-space:pre-wrap">'+esc(JSON.stringify(out, null, 1))+'</pre></details>';
+  el.innerHTML = h;
+}
 </script></div></body></html>`;
 }
 
-const authForm = (action, label) => `
+const authForm = (action, label, extraFields = "") => `
 <h1>${label}</h1><form onsubmit="api('${action}',formJson(this)).then(o=>o.ok&&(location='/setup'));return false">
-<input name="email" type="email" placeholder="email" required>
-<input name="password" type="password" placeholder="password (min 10 chars)" minlength="10" required>
+<input name="email" type="email" placeholder="email" autocomplete="email" required>
+<input name="password" type="password" placeholder="password (min 10 chars)" minlength="10" autocomplete="${action === "/login" ? "current-password" : "new-password"}" required>
+${extraFields}
 <button>${label}</button></form>
 <p><a href="${action === "/login" ? "/signup" : "/login"}">${action === "/login" ? "Create an account" : "Have an account? Log in"}</a></p>`;
 
 export const loginPage = () => layoutPage("Log in", authForm("/login", "Log in"));
-export const signupPage = () => layoutPage("Sign up", authForm("/signup", "Sign up"));
+export const signupPage = (needsSetupToken = false) => layoutPage("Sign up", authForm("/signup", "Sign up",
+  needsSetupToken ? `<input name="setup_token" type="password" placeholder="setup token (the SETUP_TOKEN you deployed with)" autocomplete="off" required>
+<small>This instance asks the first account to prove it owns the deployment.</small>` : ""));
 
 export const scopesBox = () => `
 <fieldset><legend>What access to give this key</legend>
@@ -273,7 +306,7 @@ ${notConnected ? `<p class="warn">Connect your Assistable account first (Connect
 <label>What should we call this? <input name="name" required maxlength="60" placeholder="e.g. Vehicle inventory, Scrap prices, Our website"></label>
 <fieldset><legend>Where is the data?</legend>
 ${TYPE_CARDS.map((c, i) => `
-<label style="display:flex;gap:.7rem;align-items:flex-start;padding:.7rem;border:1px solid var(--border);border-radius:var(--radius-md);margin:.45rem 0;cursor:pointer">
+<label style="display:flex;gap:.7rem;align-items:flex-start;padding:.7rem;border:1px solid var(--separator-strong);border-radius:var(--r-group);margin:.45rem 0;cursor:pointer">
 <input type="radio" name="type" value="${c.value}" ${i === 0 ? "checked" : ""} style="width:auto;margin-top:.3rem"
  onchange="document.querySelectorAll('[data-cfg]').forEach(d=>{const on=d.dataset.cfg===this.value;d.style.display=on?'':'none';d.querySelectorAll('input').forEach(i=>i.disabled=!on)})">
 <span><b>${c.title}</b><br><small>${c.desc}</small></span></label>`).join("")}
@@ -373,26 +406,27 @@ ${state.connected ? "" : `<br><a href="/connect"><button>Connect Assistable</but
 CSV, feed URL, website, or database. The first sync runs immediately and the
 custom tool is created and attached to the assistants you pick.
 ${state.sourceCount > 0 ? `<br>Source: <a href="/sources/${esc(state.firstSourceId)}">${esc(state.firstSourceName)}</a>${state.firstTool?.tool_id ? ` - tool <code>${esc(state.firstTool.tool_id)}</code> on ${esc(JSON.parse(state.firstTool.assistant_ids_json).length)} assistant(s)` : ` - <span class="err">tool not created yet (connect Assistable, then re-create the source)</span>`}` : `<br><a href="/sources/new"><button ${state.connected ? "" : "disabled"}>Add source</button></a>`}</p></li>
-<li><p><b>Paste this into your assistant's instructions</b> (in Assistable) ${stepChip(false)}<br>
+<li><p><b>Paste this into your assistant's instructions</b> (in Assistable) <span id="step3chip">${stepChip(false)}</span><br>
 <textarea id="snippet" readonly rows="4">${esc(snippet)}</textarea>
-<button onclick="navigator.clipboard.writeText(document.getElementById('snippet').value);this.textContent='Copied!'">Copy</button><br>
+<button onclick="navigator.clipboard.writeText(document.getElementById('snippet').value);this.textContent='Copied!';localStorage.setItem('kb_step3_done','1');paintStep3()">Copy</button><br>
 <small>If the assistant has a static KB covering the same topic, unlink those docs - they compete with live data on voice.</small></p></li>
 <li><p><b>Test it live</b><br>
 ${state.sourceCount > 0 ? `
 <form onsubmit="testSearch(this);return false">
 <input name="q" placeholder='Try: do you have a 2022 tacoma under 30k' required>
 <button>Ask</button></form>
-<pre id="testout" style="white-space:pre-wrap;background:#f6f6f9;padding:8px;border-radius:6px;display:none"></pre>
+<div id="testout" class="card" style="display:none"></div>
 <script>
 async function testSearch(f){
-  const out = await api('/sources/${esc(state.firstSourceId)}/test', { query: f.q.value });
-  const el = document.getElementById('testout');
-  el.style.display = 'block';
-  el.textContent = (out.speech_hint ? 'Agent would say: "' + out.speech_hint + '"\\n\\n' : '') + JSON.stringify(out, null, 1);
+  renderKbResult(document.getElementById('testout'), await api('/sources/${esc(state.firstSourceId)}/test', { query: f.q.value }));
 }
 </script>` : `<i>Add a source first.</i>`}
 Then call your assistant and ask for real.</p></li>
 </ol>
+<script>
+function paintStep3(){ if (localStorage.getItem('kb_step3_done')) { const el = document.getElementById('step3chip'); if (el) el.innerHTML = '<span class="chip active">done</span>'; } }
+paintStep3();
+</script>
 <h2>Where your data lives</h2>
 <p>Everything - your account, sources, synced items, logs - is one SQLite file
 <b>on this instance</b>: <code>${esc(state.data.dbFile)}</code>${state.data.dbSizeMb ? ` (${esc(state.data.dbSizeMb)})` : ""}.
@@ -401,7 +435,13 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 <p>Automatic daily snapshots are kept on this instance (7 days${state.data.latestBackup ? `, latest: <code>${esc(state.data.latestBackup)}</code>` : " - first one runs tonight"}).
 <a href="/backup"><button>Download backup now</button></a>
 <small>Keep a copy off this machine. Restore = replace <code>data/kb-bridge.db</code> with a backup and restart.
-On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
+On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>
+${state.keyFromEnv ? "" : `<p class="warn"><b>Set ENCRYPTION_KEY before you rely on backups.</b>
+Your encryption key was auto-generated on this instance's disk. If the host resets the disk
+(Render's free tier does on every redeploy), the key is destroyed with it - and the API keys and
+source settings inside your downloaded backups can never be decrypted again. Copy
+<code>data/.encryption-key</code> into an <code>ENCRYPTION_KEY</code> environment variable on your
+host now; env vars survive wipes.</p>`}`);
 };
 
 const statTile = (value, label, tone = "") =>
@@ -424,7 +464,7 @@ many questions it answered, what it couldn't answer, and how fast.</small></p>`;
 ${statTile(q.total, "questions asked")}
 ${statTile(`${q.helpedPct}%`, "got a useful answer", q.helpedPct >= 80 ? "good" : q.helpedPct >= 50 ? "warning" : "critical")}
 ${statTile(q.noMatch, "we couldn't help", q.noMatch ? "warning" : "good")}
-${statTile(`${q.p95}ms`, "slowest 5% (1s budget)", "good")}
+${statTile(`${q.p95}ms`, "slowest 5% (1s budget)", q.p95 > 1000 ? "critical" : q.p95 > 600 ? "warning" : "good")}
 </div>
 <p><small>${esc(q.answered)} answered exactly${q.alternatives ? `, ${esc(q.alternatives)} got the closest alternatives instead` : ""}${q.browse ? `, ${esc(q.browse)} were "what do you have?" browsing` : ""}.
 ${smarts.length ? `Along the way it ${esc(smarts.join(", "))}.` : ""}</small></p>
@@ -451,13 +491,10 @@ ${tool && tool.updated_at > tool.created_at ? `<p class="warn" style="margin:.5r
 <form onsubmit="tryIt(this);return false">
 <input name="q" placeholder="e.g. do you have a 2022 tacoma under 30k" required>
 <button>Ask</button></form>
-<pre id="tryout" style="white-space:pre-wrap;background:var(--surface-sunken);padding:10px;border-radius:10px;display:none"></pre>
+<div id="tryout" class="card" style="display:none"></div>
 <script>
 async function tryIt(f){
-  const out = await api('/sources/${esc(source.id)}/test', { query: f.q.value });
-  const el = document.getElementById('tryout');
-  el.style.display = 'block';
-  el.textContent = (out.speech_hint ? 'Your assistant would say:\\n"' + out.speech_hint + '"\\n\\nDetails:\\n' : '') + JSON.stringify(out, null, 1);
+  renderKbResult(document.getElementById('tryout'), await api('/sources/${esc(source.id)}/test', { query: f.q.value }));
 }
 </script>
 <h2>Actions</h2>

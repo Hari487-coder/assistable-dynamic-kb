@@ -29,10 +29,17 @@ export function loadConfig(env = process.env, { autoKey = false } = {}) {
     baseUrl: baseUrl.replace(/\/$/, ""),
     dataDir,
     encryptionKey: key,
+    // File-based keys die with the disk; backups encrypted under them become
+    // unreadable after a wipe. The setup page warns when this is the case.
+    encryptionKeyFromEnv: !!env.ENCRYPTION_KEY,
     mockAssistable: env.MOCK_ASSISTABLE !== "0",
     assistableApiBase: env.ASSISTABLE_API_BASE || "https://apiv3.createassistants.com",
     nodeEnv: env.NODE_ENV || "development",
     // 'open' (shared portal) | 'first-only' (self-hosted: first signup claims the instance)
     signups: env.SIGNUPS === "first-only" ? "first-only" : "open",
+    // Env vars survive the ephemeral-disk wipe that erases the users table, so
+    // this is the one credential that can prove ownership of a fresh instance:
+    // when set, the FIRST signup after a wipe must present it.
+    setupToken: env.SETUP_TOKEN || null,
   };
 }

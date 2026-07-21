@@ -20,7 +20,13 @@ function parseTable($, tbl) {
   }
   const headers = [];
   headerCells.each((i, c) => {
-    let name = slugify($(c).text(), i);
+    // Wikipedia-style header cells embed <style>/<script>/footnote markup whose
+    // text would become the column name ("mw_parser_output_tooltip_...") and
+    // get advertised to the LLM as a filter. Name from the visible text only.
+    const $c = $(c).clone();
+    $c.find("style,script,sup,small").remove();
+    let name = slugify($c.text(), i);
+    if (name.length >= 40) name = `col_${i + 1}`; // hit the slug cap = header was markup junk
     while (headers.includes(name)) name = `${name}_${i}`;
     headers.push(name);
   });

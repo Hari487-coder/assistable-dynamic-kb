@@ -53,7 +53,14 @@ export function csrfCheck(req) {
 export function requireUser(db) {
   return (req, res, next) => {
     const user = sessionUser(db, req.cookies?.sid);
-    if (!user) return res.redirect("/login");
+    if (!user) {
+      // fetch() follows the redirect and then fails to parse the login HTML as
+      // JSON, so the user saw "Something went wrong" instead of the truth.
+      if (req.get("x-requested-with") === "kb-bridge") {
+        return res.status(401).json({ ok: false, error: "Your session expired - log in again." });
+      }
+      return res.redirect("/login");
+    }
     if (!csrfCheck(req)) return res.status(403).json({ error: "csrf" });
     req.user = user;
     next();

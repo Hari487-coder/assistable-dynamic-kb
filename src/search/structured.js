@@ -89,9 +89,13 @@ function runQuery(db, source, filters, query, sort = null) {
     ({ rows, total: rows.length < 5 ? rows.length : count(extraSql, extraParams) });
 
   // Explicit sort intent ("cheapest", "newest") outranks relevance ordering.
+  // Rows missing the sort value are excluded: SQLite orders NULLs first on
+  // ASC, so "cheapest" would lead with the items that have no price at all.
   if (sort) {
-    const orderSql = `ORDER BY CAST(json_extract(i.structured_json, ?) AS REAL) ${sort.dir === "desc" ? "DESC" : "ASC"} LIMIT 5`;
-    const rows = db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} ${orderSql}`).all(...baseParams, `$.${sort.col}`);
+    const orderSql = `AND json_extract(i.structured_json, ?) IS NOT NULL
+      ORDER BY CAST(json_extract(i.structured_json, ?) AS REAL) ${sort.dir === "desc" ? "DESC" : "ASC"} LIMIT 5`;
+    const rows = db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} ${orderSql}`)
+      .all(...baseParams, `$.${sort.col}`, `$.${sort.col}`);
     return withTotal(rows);
   }
 

@@ -10,9 +10,11 @@ function trimItem(structured) {
 const CURRENCIES = [[/gbp|pound|sterling/i, "£"], [/eur/i, "€"], [/inr|rupee/i, "₹"], [/aud/i, "A$"], [/cad/i, "CA$"]];
 const MONEY_COL = /price|cost|rate|amount|fee|value|per_kg|per_lb|per_tonne/i;
 
-function money(n, key = "") {
+function money(n, key = "", detected = null) {
   if (typeof n !== "number") return String(n);
-  const symbol = CURRENCIES.find(([re]) => re.test(key))?.[1] ?? "$";
+  // Ingest-time detection (the £ seen in the raw values) beats the column-name
+  // hint; the "$" default only remains for columns that carried no signal.
+  const symbol = detected ?? CURRENCIES.find(([re]) => re.test(key))?.[1] ?? "$";
   // Unit prices read as money ("£4.00"), big-ticket prices read as whole
   // numbers ("$28,500") - saying "twenty-eight thousand five hundred point
   // zero zero" on a call is worse than useless.
@@ -26,25 +28,34 @@ function money(n, key = "") {
  * (This used to read `item.year/make/model`, so every non-car business heard
  * the literal fallback "a match".)
  */
-function itemPhrase(item) {
+function itemPhrase(item, currencies = {}) {
   const label = item.title
     || Object.entries(item).find(([, v]) => typeof v === "string" && v.trim())?.[1]
     || "one option";
   const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k));
-  return priced ? `${label} at ${money(priced[1], priced[0])}` : String(label);
+  return priced ? `${label} at ${money(priced[1], priced[0], currencies[priced[0]] ?? null)}` : String(label);
 }
 
-function speechHint({ resultCount, items, alternatives, relaxations }) {
+function speechHint({ resultCount, items, alternatives, relaxations, currencies }) {
   if (resultCount > 0) {
-    if (resultCount === 1) return `Yes - we have one match: ${itemPhrase(items[0])}.`;
+    if (resultCount === 1) return `Yes - we have one match: ${itemPhrase(items[0], currencies)}.`;
     // Voice callers decide fastest hearing the top two options, not just one.
-    const second = items[1] ? `; also ${itemPhrase(items[1])}` : "";
-    return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0])}${second}.`;
+    const second = items[1] ? `; also ${itemPhrase(items[1], currencies)}` : "";
+    return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0], currencies)}${second}.`;
   }
   if (alternatives.length) {
-    return `No exact match, but the closest we have is ${itemPhrase(alternatives[0])}. ${relaxations[0] || ""}`.trim();
+    return `No exact match, but the closest we have is ${itemPhrase(alternatives[0], currencies)}. ${relaxations[0] || ""}`.trim();
   }
   return "Nothing in our current live data matches that. Offer to check related options or take a message.";
+}
+
+// Currency symbols the ingest detected in each column's raw values.
+function columnCurrencies(source) {
+  const map = {};
+  try {
+    for (const c of JSON.parse(source.column_meta_json || "[]")) if (c.currency) map[c.name] = c.currency;
+  } catch { /* corrupt meta -> name-based fallback */ }
+  return map;
 }
 
 export function buildToolResponse({ source, structured, textResult, args, tookMs }) {
@@ -93,7 +104,7 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
     // structured payload was why every phrase collapsed to "a match".
     speech_hint: speechHint({
       resultCount: structured.resultCount, items, alternatives,
-      relaxations: structured.relaxations,
+      relaxations: structured.relaxations, currencies: columnCurrencies(source),
     }),
     guidance: "Data is live from the business's own system. If data_freshness is 'stale', say the info is from the last update. Never invent items not listed.",
     took_ms: tookMs,

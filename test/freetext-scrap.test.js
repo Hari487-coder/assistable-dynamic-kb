@@ -101,6 +101,23 @@ test("a word that names a column is not reported as 'not found in your data'", (
   );
 });
 
+test("currency comes from the raw values when the column name has no hint", () => {
+  // Column is plain "price_per_kg" - no gbp in the name - but the site prints £.
+  const rows = Array.from({ length: 4 }, (_, i) => ({
+    material: `Copper Grade ${String.fromCharCode(65 + i)}`, price_per_kg: `£${(2 + i).toFixed(2)}`,
+  }));
+  const meta = inferColumnMeta(rows);
+  assert.equal(meta.find((c) => c.name === "price_per_kg").currency, "£");
+  const item = rowToItem(rows[0], meta);
+  const out = buildToolResponse({
+    source: { last_sync_at: new Date().toISOString(), schedule_minutes: 60, column_meta_json: JSON.stringify(meta) },
+    structured: { resultCount: 1, items: [item], appliedFilters: {}, relaxations: [], alternatives: [] },
+    args: {}, tookMs: 1,
+  });
+  assert.match(out.speech_hint, /£2\.00/);
+  assert.ok(!out.speech_hint.includes("$"), "a £ site must never be spoken in dollars");
+});
+
 test("long prose columns are not offered as filter params", () => {
   const def = buildToolDefinition({ id: "s1", name: "Scrap Prices" }, columns,
     { baseUrl: "https://kb.test", secret: "s" });
