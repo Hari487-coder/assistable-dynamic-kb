@@ -10,6 +10,8 @@ import { encryptSecret, decryptSecret, newSecret, constantTimeEqual } from "../c
 import { runSync, rollbackSource } from "../sync/engine.js";
 import { buildToolDefinition } from "../assistable/tool-def.js";
 import { qualitySummary } from "../analytics/quality.js";
+import { answerQuery } from "../search/answer.js";
+import { mineChecks, runAnswerChecks, checksSummary } from "../analytics/answer-checks.js";
 import * as pages from "../views/pages.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -246,7 +248,7 @@ export function createDashboardRouter(deps) {
     const tool = db.prepare("SELECT * FROM tools WHERE source_id=?").get(source.id);
     const calls = db.prepare("SELECT * FROM tool_calls WHERE source_id=? ORDER BY ts DESC LIMIT 20").all(source.id);
     const quality = qualitySummary(db, { sourceId: source.id, days: 7 });
-    res.send(pages.sourceDetailPage(source, runs, tool, calls, quality));
+    res.send(pages.sourceDetailPage(source, runs, tool, calls, quality, checksSummary(db, source.id)));
   });
 
   const withOwned = (handler) => async (req, res) => {
@@ -255,19 +257,46 @@ export function createDashboardRouter(deps) {
     return handler(req, res, source);
   };
 
+  // Re-test the questions callers actually asked, on demand. The same work the
+  // nightly job does, so an owner can confirm a fix without waiting for 3am.
+  router.post("/sources/:id/checks/run", guard, withOwned(async (req, res, source) => {
+    if (!source.active_batch_id) return res.json({ ok: false, error: "This source hasn't finished its first sync yet." });
+    mineChecks(db, source.id);
+    const tally = runAnswerChecks(db, source.id, { logger });
+    res.json({ ok: true, ...tally });
+  }));
+
+  // "This answer was wrong." The only trustworthy source of correctness is the
+  // person who owns the data, so their verdict is recorded as a tracked issue
+  // rather than inferred from a metric.
+  router.post("/sources/:id/checks/flag", guard, withOwned(async (req, res, source) => {
+    const query = String(req.body?.query || "").trim();
+    if (!query) return res.status(400).json({ ok: false, error: "Which question gave the wrong answer?" });
+    const note = String(req.body?.note || "").slice(0, 500);
+    const ts = new Date().toISOString();
+    const norm = query.toLowerCase().replace(/\s+/g, " ").trim();
+    db.prepare(
+      `INSERT INTO answer_checks (id, source_id, query, args_json, origin, status, detail, created_at, flagged_at, flag_note)
+       VALUES (?,?,?,?,'owner','flagged',?,?,?,?)
+       ON CONFLICT(source_id, query) DO UPDATE SET flagged_at = excluded.flagged_at, flag_note = excluded.flag_note`
+    ).run(crypto.randomUUID(), source.id, norm, JSON.stringify({ query }), "Owner reported a wrong answer.", ts, ts, note);
+    audit(db, req.user.id, "answer_flagged", { sourceId: source.id, query: norm.slice(0, 120) });
+    res.json({ ok: true });
+  }));
+
+  router.post("/sources/:id/checks/clear", guard, withOwned(async (req, res, source) => {
+    db.prepare("UPDATE answer_checks SET flagged_at = NULL, flag_note = NULL WHERE source_id = ? AND query = ?")
+      .run(source.id, String(req.body?.query || "").toLowerCase().replace(/\s+/g, " ").trim());
+    res.json({ ok: true });
+  }));
+
   // Session-authed test search: same engine the tool webhook uses, so the
   // setup wizard can prove the answer before any real call happens.
   router.post("/sources/:id/test", guard, withOwned(async (req, res, source) => {
-    const { searchStructured } = await import("../search/structured.js");
-    const { searchText } = await import("../search/text.js");
-    const { buildToolResponse } = await import("../search/respond.js");
     const started = Date.now();
     if (!source.active_batch_id) return res.json({ ok: false, error: "not_synced" });
     const args = { query: String(req.body?.query || "") };
-    const out = source.type === "website"
-      ? buildToolResponse({ source, textResult: searchText(db, source, args.query), args, tookMs: Date.now() - started })
-      : buildToolResponse({ source, structured: searchStructured(db, source, args), args, tookMs: Date.now() - started });
-    res.json(out);
+    res.json(answerQuery(db, source, args, { startedAt: started }));
   }));
 
   router.post("/sources/:id/sync", guard, withOwned(async (req, res, source) => {

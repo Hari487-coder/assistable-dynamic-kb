@@ -4,6 +4,7 @@ import path from "node:path";
 import { decryptSecret } from "../crypto.js";
 import { tx } from "../db.js";
 import { inferColumnMeta, rowToItem } from "../ingest/normalize.js";
+import { runDailyChecks } from "../analytics/answer-checks.js";
 
 const RETRY_MINUTES = [1, 5, 15];
 const MAX_ITEMS_PER_SOURCE = 50_000;
@@ -123,6 +124,10 @@ export function startScheduler(deps, { tickMs = 30_000 } = {}) {
         lastBackupDay = today;
         backup(db, config.dataDir, logger);
         runRetention(db, logger);
+        // Same quiet hour as the backup: replay the questions callers actually
+        // ask, so a source that silently stopped answering surfaces here rather
+        // than in a customer's phone call.
+        runDailyChecks(db, { logger });
       }
       const due = db.prepare(`SELECT id FROM sources WHERE status != 'syncing' AND next_run_at IS NOT NULL AND next_run_at <= ? LIMIT 4`)
         .all(new Date().toISOString());

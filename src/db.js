@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   outcome TEXT, flags TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tool_calls_source ON tool_calls (source_id, ts DESC);
+-- Questions real callers asked, replayed daily to prove they still get an
+-- answer. One row per distinct question per source (see answer-checks.js for
+-- why answerability, not values, is what gets asserted).
+CREATE TABLE IF NOT EXISTS answer_checks (
+  id TEXT PRIMARY KEY, source_id TEXT NOT NULL,
+  query TEXT NOT NULL, args_json TEXT NOT NULL, baseline_json TEXT,
+  origin TEXT NOT NULL DEFAULT 'auto', status TEXT, detail TEXT,
+  created_at TEXT NOT NULL, last_run_at TEXT,
+  flagged_at TEXT, flag_note TEXT,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_answer_checks_q ON answer_checks (source_id, query);
+CREATE INDEX IF NOT EXISTS idx_answer_checks_status ON answer_checks (source_id, status);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
   user_id TEXT, event TEXT NOT NULL, detail_json TEXT

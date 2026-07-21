@@ -1,8 +1,7 @@
 import express, { Router } from "express";
 import { constantTimeEqual, encryptSecret, sha256Hex } from "../crypto.js";
 import { searchStructured } from "../search/structured.js";
-import { searchText } from "../search/text.js";
-import { buildToolResponse } from "../search/respond.js";
+import { answerQuery } from "../search/answer.js";
 import { runSync } from "../sync/engine.js";
 import { classifyOutcome, callFlags } from "../analytics/quality.js";
 
@@ -120,7 +119,7 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       if (!source.active_batch_id) {
         out = softError("not_synced", "The live data hasn't finished its first sync yet. Offer to take a message.");
       } else if (source.type === "website") {
-        out = buildToolResponse({ source, textResult: searchText(db, source, args.query), args, tookMs: Date.now() - started });
+        out = answerQuery(db, source, args, { startedAt: started });
       } else {
         let structured = searchStructured(db, source, args);
         // Anaphoric follow-up: re-run with the call's earlier filters filled in
@@ -141,7 +140,7 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
           convMem.set(convKey, { filters: structured.appliedFilters, ts: Date.now() });
           convSweep(convMem);
         }
-        out = buildToolResponse({ source, structured, args, tookMs: Date.now() - started });
+        out = answerQuery(db, source, args, { startedAt: started, structured });
       }
       if (Date.now() - started > DEADLINE_MS) {
         out = softError("temporarily_unavailable", "I couldn't check the live data just now - offer to try again in a moment.");

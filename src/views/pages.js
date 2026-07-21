@@ -475,7 +475,43 @@ ${q.unanswered.length ? `
 your assistant will know about it within seconds.</small></p>` : ""}`;
 };
 
-export const sourceDetailPage = (source, runs, tool, calls, quality) => {
+/**
+ * Daily answer checks. The framing is deliberate: this does NOT claim the
+ * answers are correct, because only the owner can know that. It claims the
+ * questions people ask still get answered, and gives the owner one button to
+ * say when an answer was wrong.
+ */
+export const checksSection = (sourceId, c) => {
+  const runNow = `<button class="ghost" onclick="api('/sources/${esc(sourceId)}/checks/run',{}).then(o=>o.ok&&location.reload())">Re-test now</button>`;
+  if (!c || c.total === 0) {
+    return `<h2>Daily answer checks</h2>
+<p><small>Once your assistant has answered a few real questions, they get saved here and
+re-tested every night. If one of them ever stops working, you'll see it here instead of
+hearing about it from a customer.</small></p>${runNow}`;
+  }
+  const needsAttention = c.regressed.length + c.flagged.length;
+  const item = (r, tone) => `<li><b class="${tone}">"${esc(r.query)}"</b><br><small>${esc(r.flag_note || r.detail || "")}</small></li>`;
+  return `<h2>Daily answer checks</h2>
+<div class="tiles">
+${statTile(c.total, "questions re-tested nightly")}
+${statTile(c.passing, "still answering", c.passing === c.total ? "good" : "")}
+${statTile(needsAttention, "need a look", needsAttention ? "critical" : "good")}
+</div>
+${c.flagged.length ? `<h3 style="font-family:var(--font-display);font-size:1rem;margin:1.2rem 0 .3rem">You marked these answers wrong</h3>
+<ul>${c.flagged.map((r) => item(r, "err")).join("")}</ul>
+<p><small>Fix the underlying data (or add the missing rows), press Refresh, then Re-test now.</small></p>` : ""}
+${c.regressed.length ? `<h3 style="font-family:var(--font-display);font-size:1rem;margin:1.2rem 0 .3rem">Stopped answering</h3>
+<ul>${c.regressed.map((r) => item(r, "err")).join("")}</ul>
+<p><small>These questions used to work. Usually a sync changed the data's shape or dropped rows -
+check the sync history above, or roll back.</small></p>` : ""}
+${c.changed.length ? `<h3 style="font-family:var(--font-display);font-size:1rem;margin:1.2rem 0 .3rem">Answers that moved</h3>
+<ul>${c.changed.map((r) => `<li>"${esc(r.query)}"<br><small>${esc(r.detail)}</small></li>`).join("")}</ul>
+<p><small>Expected when your prices or stock change - shown so nothing moves without you knowing.</small></p>` : ""}
+<p><small>Last re-tested: ${c.lastRunAt ? esc(new Date(c.lastRunAt).toLocaleString()) : "not yet"}. Runs automatically every night.</small></p>
+${runNow}`;
+};
+
+export const sourceDetailPage = (source, runs, tool, calls, quality, checks = null) => {
   const lastError = runs.find((r) => r.error)?.error;
   const st = humanizeStatus(source, lastError);
   const attached = tool?.tool_id ? JSON.parse(tool.assistant_ids_json).length : 0;
@@ -508,14 +544,25 @@ async function tryIt(f){
 next check ${esc(source.next_run_at ? timeAgo(source.next_run_at).replace(" ago", " from now").replace("just now", "any moment") : "-")}.
 A refresh never breaks live answers - the old data keeps serving until the new data is verified.</small></p>
 ${qualitySection(quality)}
+${checksSection(source.id, checks)}
 <h2>What customers asked</h2>
 ${calls.length === 0 ? `<p><small>No questions yet - once your assistant starts using this, every question shows up here.</small></p>` : `
-<div class="scroller"><table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th></tr>
+<div class="scroller"><table><tr><th>When</th><th>Question</th><th>Answers</th><th>Speed</th><th></th></tr>
 ${calls.map((c) => {
   let q = c.args_json;
   try { q = JSON.parse(c.args_json).query || c.args_json; } catch { /* raw */ }
-  return `<tr><td>${esc(timeAgo(c.ts))}</td><td>${esc(String(q).slice(0, 90))}</td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}ms</td></tr>`;
-}).join("")}</table></div>`}
+  return `<tr><td>${esc(timeAgo(c.ts))}</td><td>${esc(String(q).slice(0, 90))}</td><td>${esc(c.result_count ?? "-")}</td><td>${esc(c.took_ms)}ms</td>
+<td><button class="ghost" style="padding:.2rem .55rem;min-height:0;font-size:.76rem" onclick="flagAnswer(${esc(JSON.stringify(String(q)))})">wrong?</button></td></tr>`;
+}).join("")}</table></div>
+<p><small>Heard the assistant give a wrong answer? Press <b>wrong?</b> on that question. It becomes a
+tracked issue and gets re-tested every night, so you can tell when it's actually fixed.</small></p>
+<script>
+function flagAnswer(q){
+  const note = prompt('What should it have said? (optional - helps you remember)');
+  if (note === null) return;
+  api('/sources/${esc(source.id)}/checks/flag', { query: q, note: note }).then(o => o.ok && location.reload());
+}
+</script>`}
 <details><summary style="cursor:pointer;font-weight:600;margin:1.5rem 0 .5rem">For developers: instant updates &amp; history</summary>
 <p>Push updates the moment something changes (live pricing, stock):</p>
 <pre>curl -X POST -H "x-push-secret: ${esc(source.push_secret ?? "")}" \\
