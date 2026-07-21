@@ -11,6 +11,7 @@ import { createToolApiRouter } from "./routes/tool-api.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { startScheduler } from "./sync/engine.js";
 import { startKeepAlive } from "./keepalive.js";
+import { bootstrapFromEnv } from "./bootstrap.js";
 import { AssistableClient } from "./assistable/client.js";
 import { fetchFeedItems } from "./connectors/feed.js";
 import { parseCsvItems } from "./connectors/csv.js";
@@ -81,6 +82,13 @@ if (isMain) {
   const logger = createLogger();
   fs.mkdirSync(config.dataDir, { recursive: true });
   const db = openDb(path.join(config.dataDir, "kb-bridge.db"));
+  // Ephemeral-disk self-restore: if the DB is empty and BOOTSTRAP is set,
+  // rebuild the account/connection/sources/tools before serving traffic.
+  await bootstrapFromEnv({
+    db, config, logger, connectors: defaultConnectors,
+    makeClient: (apiKey, subAccountId) =>
+      new AssistableClient({ apiKey, subAccountId, base: config.assistableApiBase, mock: config.mockAssistable, logger }),
+  }).catch((err) => logger.error("bootstrap failed; continuing with an empty instance", { error: String(err) }));
   const app = buildApp({ db, config, logger, connectors: defaultConnectors });
   const scheduler = startScheduler({ db, config, logger, connectors: defaultConnectors });
   const server = app.listen(config.port, () => logger.info("kb-bridge listening", { port: config.port, mock: config.mockAssistable }));

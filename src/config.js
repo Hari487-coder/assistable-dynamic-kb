@@ -41,5 +41,10 @@ export function loadConfig(env = process.env, { autoKey = false } = {}) {
     // this is the one credential that can prove ownership of a fresh instance:
     // when set, the FIRST signup after a wipe must present it.
     setupToken: env.SETUP_TOKEN || null,
+    // Full self-restore plan (JSON) applied on boot when the DB is empty - see
+    // src/bootstrap.js. Free-tier hosts wipe the disk on redeploy; with this
+    // set, the instance rebuilds its account, connection, sources and tools
+    // by itself instead of serving "not synced" until a human notices.
+    bootstrap: env.BOOTSTRAP || null,
   };
 }

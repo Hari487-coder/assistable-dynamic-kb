@@ -40,6 +40,7 @@ export class AssistableClient {
       this.mockCalls.push({ method, path, body });
       this.logger.info("MOCK assistable call", { method, path });
       if (method === "POST" && path === "/v3/tools") return { id: `mock-tool-${++this._mockN}` };
+      if (method === "GET" && path.startsWith("/v3/tools")) return [];
       if (path.startsWith("/v3/assistants")) return [{ id: "mock-assistant-1", name: "Mock Assistant" }];
       return { ok: true };
     }
@@ -79,6 +80,7 @@ export class AssistableClient {
   }
 
   listAssistants() { return this._req("GET", "/v3/assistants?limit=100"); }
+  listTools() { return this._req("GET", "/v3/tools?limit=100"); }
 
   /**
    * Probe the connection. Returns {ok} or {ok:false, status, code, reason} -
