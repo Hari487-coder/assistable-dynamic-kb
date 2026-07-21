@@ -12,6 +12,12 @@ import { buildToolDefinition } from "../assistable/tool-def.js";
 import { qualitySummary } from "../analytics/quality.js";
 import { answerQuery } from "../search/answer.js";
 import { mineChecks, runAnswerChecks, checksSummary } from "../analytics/answer-checks.js";
+import { buildDiagnosticBundle } from "../diagnostics.js";
+
+const APP_VERSION = (() => {
+  try { return JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version; }
+  catch { return null; }
+})();
 import * as pages from "../views/pages.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -157,6 +163,20 @@ export function createDashboardRouter(deps) {
 
   // One-click consistent snapshot of the whole instance (VACUUM INTO), streamed
   // as a download. This is the answer to "where is my data" — a file you hold.
+  // Support export. Nobody can reach into a self-hosted instance, so the owner
+  // sends a redacted picture of it instead. Allowlisted in src/diagnostics.js.
+  router.get("/diagnostics", guard, (req, res) => {
+    const bundle = buildDiagnosticBundle(db, config, {
+      includeQuestions: req.query.questions !== "0",
+      includeData: req.query.data === "1",
+      appVersion: APP_VERSION,
+    });
+    audit(db, req.user.id, "diagnostics_downloaded", { includeData: req.query.data === "1" });
+    res.setHeader("content-type", "application/json");
+    res.setHeader("content-disposition", `attachment; filename="live-kb-diagnostics-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.send(JSON.stringify(bundle, null, 1));
+  });
+
   router.get("/backup", guard, (req, res) => {
     const tmp = path.join(config.dataDir, `export-${crypto.randomUUID()}.db`);
     try {

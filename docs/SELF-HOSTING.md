@@ -181,6 +181,31 @@ Connection page.
   source in the portal (re-provisions with a fresh secret). Rotating the
   Assistable API key: just paste the new one on the Connection page.
 
+## Getting help with your instance
+
+Nobody else can see your Live KB - it runs on your box, and that is the point.
+So support works the other way round: the setup page has **Download diagnostic
+report**, which exports a redacted picture of the instance that you can send to
+whoever is helping you.
+
+It contains your settings, column names and types, sync history and errors, how
+the assistant has been answering, and the questions customers asked, with email
+addresses and phone numbers stripped out. It never contains your Assistable API
+key, passwords, encryption key, source URLs or database credentials, or your
+actual rows. **Include sample data** adds up to 10 example rows per source if
+the problem is about specific values; `/diagnostics?questions=0` leaves the
+customer questions out entirely.
+
+Whoever receives it runs:
+
+```bash
+node tools/diagnose.mjs their-bundle.json
+```
+
+which reports the findings ranked by severity: a tool attached to no assistant,
+a price column that parsed as text (so "cheapest" silently does nothing), an
+instance still in mock mode, syncs failing, questions that stopped answering.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

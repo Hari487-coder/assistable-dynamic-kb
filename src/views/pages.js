@@ -436,6 +436,18 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 <a href="/backup"><button>Download backup now</button></a>
 <small>Keep a copy off this machine. Restore = replace <code>data/kb-bridge.db</code> with a backup and restart.
 On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>
+<h2>Getting help</h2>
+<p>Nobody else can see this instance, so if something is wrong, send a diagnostic report and
+whoever is helping you can read exactly what happened.</p>
+<p><a href="/diagnostics"><button class="ghost">Download diagnostic report</button></a>
+<a href="/diagnostics?data=1"><button class="ghost">Include sample data</button></a></p>
+<p><small><b>What's in it:</b> your settings, column names and types, sync history and errors,
+how your assistant has been answering, and the questions customers asked (with emails and phone
+numbers stripped out).
+<br><b>What's never in it:</b> your Assistable API key, your passwords, your encryption key, your
+source URLs or database credentials, and your actual rows - unless you choose
+<i>Include sample data</i>, which adds up to 10 example rows per source.
+<br>Prefer not to share the questions at all? Use <code>/diagnostics?questions=0</code>.</small></p>
 ${state.keyFromEnv ? "" : `<p class="warn"><b>Set ENCRYPTION_KEY before you rely on backups.</b>
 Your encryption key was auto-generated on this instance's disk. If the host resets the disk
 (Render's free tier does on every redeploy), the key is destroyed with it - and the API keys and
