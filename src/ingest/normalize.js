@@ -2,9 +2,13 @@ export function parseNumericLike(v) {
   if (v === null || v === undefined) return null;
   let s = String(v).trim().toLowerCase();
   if (!s || /^(n\/a|na|null|-|none)$/.test(s)) return null;
+  // "£7.20", "US$143,000,000", "GBP 7.20": one un-parsed currency style on a
+  // price column demotes the whole column to text (no filters, no quartiles),
+  // so strip code/symbol prefixes before deciding numeric-ness.
+  s = s.replace(/^(usd|gbp|eur|inr|aud|cad|nzd)\s*(?=[\d$£€₹])|^(us|au|ca|nz)(?=\$)/, "");
   let mult = 1;
-  if (/^\$?[\d,.]+\s*k$/.test(s)) { mult = 1000; s = s.replace(/k$/, ""); }
-  s = s.replace(/[$,\s]/g, "").replace(/(km|mi|miles|kms)$/g, "");
+  if (/^[$£€₹]?[\d,.]+\s*k$/.test(s)) { mult = 1000; s = s.replace(/k$/, ""); }
+  s = s.replace(/[$£€₹,\s]/g, "").replace(/(km|mi|miles|kms)$/g, "");
   if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
   return Number(s) * mult;
 }
@@ -42,6 +46,15 @@ export function inferColumnMeta(rows) {
       const distincts = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
       return { name, kind: "categorical", distincts };
     }
+    // A short, near-unique text column ("1955 Mercedes-Benz 300 SLR") is the
+    // row's identity — what a person would call it. Single-token values with
+    // digits (VINs, SKUs) don't read as names, so they stay plain text.
+    const strs = vals.map((v) => String(v).trim());
+    const avgLen = strs.reduce((a, s) => a + s.length, 0) / strs.length;
+    const idCodes = strs.filter((s) => /^[\w-]*\d[\w-]*$/.test(s)).length;
+    if (freq.size / vals.length >= 0.8 && avgLen <= 40 && idCodes / strs.length <= 0.5) {
+      return { name, kind: "text", identityish: true };
+    }
     return { name, kind: "text" };
   });
 }
@@ -68,7 +81,22 @@ export function rowToItem(row, columns) {
       && !DATE_LIKE.test(value)
       && value.length <= 25;
   });
-  const fallback = columns.filter((c) => c.kind !== "numeric");
+  // The identity column ("car", "product name", or a near-unique short text
+  // column) must lead when the label columns would drop it — otherwise rows
+  // get named after whatever repeats: "RM Sotheby's Stuttgart" instead of the
+  // car that sold there.
+  const NAME_COL = /(^|_)(name|title|model|car|vehicle|product|item|material)(_|$)/i;
+  const NON_NAME = /(^|_)(notes?|sources?|comments?|desc\w*|urls?|links?|images?)(_|$)/i;
+  const identityOk = (c) => {
+    const value = String(structured[c.name] ?? "");
+    return c.kind !== "numeric" && value && value.length <= 60
+      && !labelish.includes(c)                 // already titled? keep column order
+      && !META_COL.test(c.name) && !DATE_LIKE.test(value);
+  };
+  const identity = columns.find((c) => identityOk(c) && NAME_COL.test(c.name))
+    ?? columns.find((c) => identityOk(c) && c.identityish && !NON_NAME.test(c.name));
+  if (identity) titleParts.push(structured[identity.name]);
+  const fallback = columns.filter((c) => c.kind !== "numeric" && c !== identity);
   for (const c of (labelish.length ? labelish : fallback)) {
     if (titleParts.length >= 3) break;
     if (structured[c.name]) titleParts.push(structured[c.name]);
