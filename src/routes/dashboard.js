@@ -149,6 +149,7 @@ export function createDashboardRouter(deps) {
       firstTool: tool,
       firstToolName: tool?.tool_id ? `the live_data_${String(first?.name || "").replace(/[^a-zA-Z0-9_-]+/g, "_")} tool` : null,
       data: dataStats(req.user.id),
+      keyFromEnv: !!config.encryptionKeyFromEnv,
     }));
   });
 

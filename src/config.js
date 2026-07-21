@@ -29,6 +29,9 @@ export function loadConfig(env = process.env, { autoKey = false } = {}) {
     baseUrl: baseUrl.replace(/\/$/, ""),
     dataDir,
     encryptionKey: key,
+    // File-based keys die with the disk; backups encrypted under them become
+    // unreadable after a wipe. The setup page warns when this is the case.
+    encryptionKeyFromEnv: !!env.ENCRYPTION_KEY,
     mockAssistable: env.MOCK_ASSISTABLE !== "0",
     assistableApiBase: env.ASSISTABLE_API_BASE || "https://apiv3.createassistants.com",
     nodeEnv: env.NODE_ENV || "development",

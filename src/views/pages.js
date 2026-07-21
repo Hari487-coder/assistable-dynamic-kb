@@ -404,7 +404,13 @@ Nothing is stored on anyone else's server; delete the instance and the data is g
 <p>Automatic daily snapshots are kept on this instance (7 days${state.data.latestBackup ? `, latest: <code>${esc(state.data.latestBackup)}</code>` : " - first one runs tonight"}).
 <a href="/backup"><button>Download backup now</button></a>
 <small>Keep a copy off this machine. Restore = replace <code>data/kb-bridge.db</code> with a backup and restart.
-On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>`);
+On Render's free tier the disk resets on redeploys - download a backup after big changes.</small></p>
+${state.keyFromEnv ? "" : `<p class="warn"><b>Set ENCRYPTION_KEY before you rely on backups.</b>
+Your encryption key was auto-generated on this instance's disk. If the host resets the disk
+(Render's free tier does on every redeploy), the key is destroyed with it - and the API keys and
+source settings inside your downloaded backups can never be decrypted again. Copy
+<code>data/.encryption-key</code> into an <code>ENCRYPTION_KEY</code> environment variable on your
+host now; env vars survive wipes.</p>`}`);
 };
 
 const statTile = (value, label, tone = "") =>
