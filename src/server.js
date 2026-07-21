@@ -47,12 +47,20 @@ export function buildApp(deps) {
     }},
   }));
   app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true }));
-  app.use(express.json({ limit: "256kb" }));
+  // The new-source form sends the CSV as csv_text inside a JSON body; the
+  // schema promises 5MB, so a 256kb parser cap here turned any real inventory
+  // export into a bare 413. Everything else stays small.
+  const bigJson = express.json({ limit: "6mb" });
+  const smallJson = express.json({ limit: "256kb" });
+  app.use((req, res, next) => (req.path === "/sources/new" ? bigJson : smallJson)(req, res, next));
   app.use(cookieParser);
   app.use(createToolApiRouter({ db, logger, config, connectors }));
   app.use(createDashboardRouter({ db, config, logger, connectors, makeClient }));
   app.use((_req, res) => res.status(404).send(pages.layoutPage("Not found", "<p>Page not found.</p>")));
   app.use((err, _req, res, _next) => {
+    if (err?.type === "entity.too.large") {
+      return res.status(413).json({ ok: false, error: "That file is too large (limit 5 MB). Trim unused columns or split it into smaller sources." });
+    }
     logger.error("unhandled", { error: String(err?.message || err) });
     res.status(500).json({ ok: false, error: "internal error" });
   });
