@@ -184,6 +184,13 @@ export function createDashboardRouter(deps) {
       : { url };
     if (b.type === "csv" && !cfg.csv_text) return res.status(400).json({ ok: false, error: "CSV content required" });
     if (b.type !== "csv" && !cfg.url && !cfg.connectionString) return res.status(400).json({ ok: false, error: "config incomplete" });
+    // Double-submits and impatient re-clicks created six identical sources for
+    // one real user - each with its own tool in Assistable. Same name for the
+    // same user is a duplicate, not a new source.
+    const dup = db.prepare("SELECT id FROM sources WHERE user_id = ? AND name = ? COLLATE NOCASE").get(req.user.id, b.name);
+    if (dup) {
+      return res.status(409).json({ ok: false, error: `You already have a source called "${b.name}". Open it from Your data, or pick a different name.`, source_id: dup.id });
+    }
     const id = crypto.randomUUID();
     const secret = newSecret();
     db.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,schedule_minutes,secret,push_secret,created_at)
