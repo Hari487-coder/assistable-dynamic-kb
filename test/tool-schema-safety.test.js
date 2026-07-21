@@ -27,6 +27,25 @@ test("every generated parameter name is LLM-safe", () => {
   assert.match(def.name, LLM_SAFE);
 });
 
+test("price range always gets a schema slot; date columns never crowd it out", () => {
+  // Wikipedia-auction shape: 3 categoricals (one of them a date) + 3 numerics.
+  // First-come order used to hand the 6 slots to date/auctioneer/locale/year
+  // and drop the price range entirely.
+  const columns = [
+    { name: "date", kind: "categorical", distincts: ["May 2022", "Aug 2018"] },
+    { name: "auctioneer", kind: "categorical", distincts: ["RM Sotheby's", "Bonhams"] },
+    { name: "locale", kind: "categorical", distincts: ["Stuttgart", "Carmel"] },
+    { name: "my", kind: "numeric", min: 1884, max: 2025 },
+    { name: "original_price", kind: "numeric", min: 4000000, max: 143000000 },
+    { name: "adjusted", kind: "numeric", min: 4295000, max: 157326000 },
+  ];
+  const def = buildToolDefinition({ id: "s1", name: "Car auctions" }, columns, { baseUrl: "https://kb.test", secret: "s" });
+  const props = Object.keys(def.parameters.properties);
+  assert.ok(props.includes("original_price_min") && props.includes("original_price_max"),
+    "the money column is the filter customers use - it must be advertised");
+  assert.ok(!props.includes("date"), "a date categorical must not outrank the price range");
+});
+
 test("tool is created in the category Assistable's dashboard can edit", () => {
   const def = buildToolDefinition({ id: "s1", name: "Scrap Prices" }, [], { baseUrl: "https://kb.test", secret: "s" });
   // v2's tools PATCH filters on category:"custom"; without it the owner gets

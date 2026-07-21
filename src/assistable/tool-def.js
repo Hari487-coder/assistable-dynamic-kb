@@ -27,24 +27,37 @@ export function buildToolDefinition(source, columnMeta, { baseUrl, secret }) {
     (c) => c.kind === "categorical" && (c.distincts?.length ?? 0) >= 2 && isLabelSized(c)
   );
   const numerics = columnMeta.filter((c) => c.kind === "numeric");
+  // Slots are scarce (6) and first-come order used to be arbitrary: on a table
+  // with a few categoricals plus year, the PRICE range - the filter customers
+  // actually ask by - fell off the end. Rank by usefulness instead: money-like
+  // ranges first, plain label filters next, other ranges, and date-like
+  // categoricals last (nobody narrows a call by "12 May 2022").
+  const MONEYISH = /price|cost|rate|amount|fee|value|msrp|per_kg|per_lb|per_tonne|total/i;
+  const DATEISH = /date|updated|created|modified|timestamp|_at$/i;
+  const requests = [
+    ...numerics.filter((c) => MONEYISH.test(c.name)).map((c) => ({ c, range: true })),
+    ...categoricals.filter((c) => !DATEISH.test(c.name)).map((c) => ({ c, range: false })),
+    ...numerics.filter((c) => !MONEYISH.test(c.name)).map((c) => ({ c, range: true })),
+    ...categoricals.filter((c) => DATEISH.test(c.name)).map((c) => ({ c, range: false })),
+  ];
   let slots = MAX_FILTER_PARAMS;
-  for (const c of categoricals) {
-    if (slots <= 0) break;
-    const shown = c.distincts.slice(0, 25);
-    const more = c.distincts.length - shown.length;
-    properties[paramName(c.name)] = {
-      type: "string",
-      description: `Filter by ${c.name}. Common values: ${shown.join(", ")}${more > 0 ? ` (+${more} more accepted - pass whatever the customer says)` : ""}. Use "" if the customer did not mention it.`,
-    };
-    filterSummaries.push(c.name);
-    slots--;
-  }
-  for (const c of numerics) {
-    if (slots < 2) break;
-    properties[`${paramName(c.name)}_min`] = { type: "number", description: `Minimum ${c.name} (observed range ${c.min}-${c.max}). Use 0 if not mentioned.` };
-    properties[`${paramName(c.name)}_max`] = { type: "number", description: `Maximum ${c.name} (observed range ${c.min}-${c.max}). Use 0 if not mentioned.` };
-    filterSummaries.push(`${c.name} range`);
-    slots -= 2;
+  for (const { c, range } of requests) {
+    const cost = range ? 2 : 1;
+    if (slots < cost) continue; // a 1-slot label can still fit after a range didn't
+    if (range) {
+      properties[`${paramName(c.name)}_min`] = { type: "number", description: `Minimum ${c.name} (observed range ${c.min}-${c.max}). Use 0 if not mentioned.` };
+      properties[`${paramName(c.name)}_max`] = { type: "number", description: `Maximum ${c.name} (observed range ${c.min}-${c.max}). Use 0 if not mentioned.` };
+      filterSummaries.push(`${c.name} range`);
+    } else {
+      const shown = c.distincts.slice(0, 25);
+      const more = c.distincts.length - shown.length;
+      properties[paramName(c.name)] = {
+        type: "string",
+        description: `Filter by ${c.name}. Common values: ${shown.join(", ")}${more > 0 ? ` (+${more} more accepted - pass whatever the customer says)` : ""}. Use "" if the customer did not mention it.`,
+      };
+      filterSummaries.push(c.name);
+    }
+    slots -= cost;
   }
   return {
     name: `live_data_${slug(source.name)}`.slice(0, 64),
