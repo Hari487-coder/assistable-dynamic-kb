@@ -56,3 +56,45 @@ test("signups=first-only: first signup works, second is rejected", async () => {
   assert.match((await second.json()).error, /closed/i);
   srv.close();
 });
+
+function bootApp(configExtra = {}) {
+  const db = openDb(":memory:");
+  const config = {
+    encryptionKey: Buffer.alloc(32, 5).toString("base64"),
+    baseUrl: "http://t", dataDir: "./data", nodeEnv: "test", ...configExtra,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use(cookieParser);
+  app.use(createDashboardRouter({
+    db, config, logger: noopLog, connectors: {},
+    makeClient: () => new AssistableClient({ apiKey: "x", mock: true, logger: noopLog }),
+  }));
+  const srv = app.listen(0);
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const post = (path, body) => fetch(`${base}${path}`, {
+    method: "POST", headers: { "content-type": "application/json", "x-requested-with": "kb-bridge" },
+    body: JSON.stringify(body),
+  });
+  return { db, srv, post };
+}
+
+test("SETUP_TOKEN: first signup after a wipe must present the deploy token", async () => {
+  const { srv, post } = bootApp({ signups: "first-only", setupToken: "deploy-secret-1" });
+  const noToken = await post("/signup", { email: "squatter@x.co", password: "longenough1" });
+  assert.equal(noToken.status, 403);
+  assert.match((await noToken.json()).error, /setup token/i);
+  const wrong = await post("/signup", { email: "squatter@x.co", password: "longenough1", setup_token: "guess" });
+  assert.equal(wrong.status, 403);
+  const right = await post("/signup", { email: "owner@self.host", password: "longenough1", setup_token: "deploy-secret-1" });
+  assert.equal(right.status, 200);
+  srv.close();
+});
+
+test("login on an empty instance explains the wipe instead of 'invalid credentials'", async () => {
+  const { srv, post } = bootApp({ signups: "first-only" });
+  const res = await post("/login", { email: "owner@self.host", password: "longenough1" });
+  assert.equal(res.status, 401);
+  assert.match((await res.json()).error, /redeployed|reset|sign up/i, "the real owner must learn the instance was wiped");
+  srv.close();
+});

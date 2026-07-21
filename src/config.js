@@ -34,5 +34,9 @@ export function loadConfig(env = process.env, { autoKey = false } = {}) {
     nodeEnv: env.NODE_ENV || "development",
     // 'open' (shared portal) | 'first-only' (self-hosted: first signup claims the instance)
     signups: env.SIGNUPS === "first-only" ? "first-only" : "open",
+    // Env vars survive the ephemeral-disk wipe that erases the users table, so
+    // this is the one credential that can prove ownership of a fresh instance:
+    // when set, the FIRST signup after a wipe must present it.
+    setupToken: env.SETUP_TOKEN || null,
   };
 }

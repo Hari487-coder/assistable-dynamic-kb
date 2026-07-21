@@ -184,15 +184,18 @@ function formJson(f){const o={};new FormData(f).forEach((v,k)=>{o[k]=v});return 
 </script></div></body></html>`;
 }
 
-const authForm = (action, label) => `
+const authForm = (action, label, extraFields = "") => `
 <h1>${label}</h1><form onsubmit="api('${action}',formJson(this)).then(o=>o.ok&&(location='/setup'));return false">
-<input name="email" type="email" placeholder="email" required>
-<input name="password" type="password" placeholder="password (min 10 chars)" minlength="10" required>
+<input name="email" type="email" placeholder="email" autocomplete="email" required>
+<input name="password" type="password" placeholder="password (min 10 chars)" minlength="10" autocomplete="${action === "/login" ? "current-password" : "new-password"}" required>
+${extraFields}
 <button>${label}</button></form>
 <p><a href="${action === "/login" ? "/signup" : "/login"}">${action === "/login" ? "Create an account" : "Have an account? Log in"}</a></p>`;
 
 export const loginPage = () => layoutPage("Log in", authForm("/login", "Log in"));
-export const signupPage = () => layoutPage("Sign up", authForm("/signup", "Sign up"));
+export const signupPage = (needsSetupToken = false) => layoutPage("Sign up", authForm("/signup", "Sign up",
+  needsSetupToken ? `<input name="setup_token" type="password" placeholder="setup token (the SETUP_TOKEN you deployed with)" autocomplete="off" required>
+<small>This instance asks the first account to prove it owns the deployment.</small>` : ""));
 
 export const scopesBox = () => `
 <fieldset><legend>What access to give this key</legend>

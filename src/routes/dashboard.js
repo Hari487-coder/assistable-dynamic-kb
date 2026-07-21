@@ -6,7 +6,7 @@ import multer from "multer";
 import { z } from "zod";
 import { createUser, createSession, sessionUser, requireUser, loginLimiter, verifyPassword, audit, cookieOpts } from "../auth.js";
 import { ownedSource, ownedConnection } from "../tenant.js";
-import { encryptSecret, decryptSecret, newSecret } from "../crypto.js";
+import { encryptSecret, decryptSecret, newSecret, constantTimeEqual } from "../crypto.js";
 import { runSync, rollbackSource } from "../sync/engine.js";
 import { buildToolDefinition } from "../assistable/tool-def.js";
 import { qualitySummary } from "../analytics/quality.js";
@@ -36,16 +36,23 @@ export function createDashboardRouter(deps) {
 
   router.get("/healthz", (_req, res) => res.json({ ok: true }));
   router.get("/", (req, res) => res.redirect(sessionUser(db, req.cookies?.sid) ? "/sources" : "/login"));
-  router.get("/login", (_req, res) => res.send(pages.loginPage()));
-  router.get("/signup", (_req, res) => res.send(pages.signupPage()));
+  const userCount = () => db.prepare("SELECT count(*) c FROM users").get().c;
 
-  const signupsClosed = () =>
-    config.signups === "first-only" && db.prepare("SELECT count(*) c FROM users").get().c > 0;
+  router.get("/login", (_req, res) => res.send(pages.loginPage()));
+  router.get("/signup", (_req, res) => res.send(pages.signupPage(!!config.setupToken && userCount() === 0)));
+
+  const signupsClosed = () => config.signups === "first-only" && userCount() > 0;
 
   router.post("/signup", loginLimiter, async (req, res) => {
     try {
       if (signupsClosed()) {
         return res.status(403).json({ ok: false, error: "signups are closed on this instance (self-hosted, first-only mode)" });
+      }
+      // A wiped disk leaves an unclaimed instance that the first visitor owns.
+      // SETUP_TOKEN (an env var, which survives wipes) proves the claimer is
+      // the person who deployed it.
+      if (userCount() === 0 && config.setupToken && !constantTimeEqual(String(req.body?.setup_token || ""), config.setupToken)) {
+        return res.status(403).json({ ok: false, error: "This instance requires its setup token for the first account. Enter the SETUP_TOKEN value you set when deploying." });
       }
       const user = await createUser(db, req.body?.email, req.body?.password);
       audit(db, user.id, "signup", { email: user.email });
@@ -58,7 +65,11 @@ export function createDashboardRouter(deps) {
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(String(req.body?.email || "").toLowerCase());
     if (!user || !(await verifyPassword(String(req.body?.password || ""), user.password_hash))) {
       audit(db, user?.id ?? null, "login_failed", { email: req.body?.email });
-      return res.status(401).json({ ok: false, error: "invalid credentials" });
+      // "invalid credentials" on an empty instance gaslights the real owner
+      // after a disk wipe - their password was right, the account is gone.
+      return res.status(401).json({ ok: false, error: userCount() === 0
+        ? "No accounts exist on this instance. If it was redeployed recently, the disk was reset - sign up again to reclaim it, then restore your backup."
+        : "invalid credentials" });
     }
     audit(db, user.id, "login", {});
     res.cookie("sid", createSession(db, user.id), cookieOpts(config.nodeEnv));
