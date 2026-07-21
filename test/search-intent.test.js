@@ -63,6 +63,28 @@ test("sort intent: cheapest returns lowest price first", () => {
   assert.ok(r.relaxations.some((n) => /sorted by price low to high/.test(n)));
 });
 
+test("sort skips rows missing the sorted value (NULLs sort first in SQLite)", () => {
+  const rows = [
+    ...Array.from({ length: 9 }, (_, i) => ({ material: `Copper Grade ${String.fromCharCode(65 + i)}`, price: `£${(i + 3).toFixed(2)}` })),
+    { material: "Mixed Load", price: "call for price" }, // -> null, but 90% still parse: column stays numeric
+  ];
+  const meta = inferColumnMeta(rows);
+  const db2 = openDb(":memory:");
+  db2.prepare(`INSERT INTO users (id,email,password_hash,created_at) VALUES ('u1','a@b.c','h','2026-01-01')`).run();
+  db2.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,secret,status,active_batch_id,column_meta_json,last_sync_at,schedule_minutes,created_at)
+               VALUES ('s1','u1','csv','prices','ct','sec','active','b1',?,?,1440,'2026-01-01')`)
+    .run(JSON.stringify(meta), new Date().toISOString());
+  const ins = db2.prepare("INSERT INTO items (id,source_id,batch_id,title,body,structured_json) VALUES (?,?,?,?,?,?)");
+  for (const row of rows) {
+    const item = rowToItem(row, meta);
+    ins.run(crypto.randomUUID(), "s1", "b1", item.title, item.body, JSON.stringify(item.structured));
+  }
+  const src = db2.prepare("SELECT * FROM sources WHERE id='s1'").get();
+  const r = searchStructured(db2, src, { query: "whats your cheapest material", filters: {} });
+  assert.equal(r.items[0].structured.price, 3, "cheapest must be a real price, not a missing one");
+  assert.ok(r.items.every((i) => i.structured.price !== null), "unpriced rows never appear in a price sort");
+});
+
 test("sort intent: newest returns latest year first", () => {
   const r = searchStructured(db, source, { query: "newest thing on the lot" });
   assert.equal(r.items[0].structured.year, 2023);

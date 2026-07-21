@@ -21,6 +21,23 @@ const MAX_DISTINCTS = 500;
 const DATE_LIKE = /^\d{4}-\d{2}-\d{2}|^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/;
 const META_COL = /date|updated|created|modified|timestamp|_at$/i;
 
+// Which currency the raw values carried, remembered BEFORE the numeric parse
+// strips it. Without this, "£7.20" ingests fine but gets spoken as "$7.20" -
+// worse than useless for a UK business. Most-specific prefixes first.
+const CURRENCY_PREFIXES = [
+  [/^(?:£|gbp\b)/i, "£"], [/^(?:€|eur\b)/i, "€"], [/^(?:₹|inr\b)/i, "₹"],
+  [/^(?:a\$|aud\b)/i, "A$"], [/^(?:ca\$|cad\b)/i, "CA$"], [/^(?:us\$|\$|usd\b)/i, "$"],
+];
+function detectCurrency(vals) {
+  const counts = new Map();
+  for (const v of vals) {
+    const hit = CURRENCY_PREFIXES.find(([re]) => re.test(String(v).trim()));
+    if (hit) counts.set(hit[1], (counts.get(hit[1]) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return top && top[1] >= vals.length * 0.5 ? top[0] : null;
+}
+
 export function inferColumnMeta(rows) {
   if (!rows.length) return [];
   const names = Object.keys(rows[0]);
@@ -32,7 +49,9 @@ export function inferColumnMeta(rows) {
       // bottom quartile). Recomputed on every sync, so they can't go stale.
       const sorted = [...nums].sort((a, b) => a - b);
       const q = (p) => sorted[Math.floor(p * (sorted.length - 1))];
-      return { name, kind: "numeric", min: sorted[0], max: sorted[sorted.length - 1], p25: q(0.25), p75: q(0.75) };
+      const currency = detectCurrency(vals);
+      return { name, kind: "numeric", min: sorted[0], max: sorted[sorted.length - 1], p25: q(0.25), p75: q(0.75),
+               ...(currency ? { currency } : {}) };
     }
     const freq = new Map();
     for (const v of vals) {
