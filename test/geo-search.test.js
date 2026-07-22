@@ -20,6 +20,24 @@ const YARDS = [
 const ROWS = YARDS.map(([yard_name, area, latitude, longitude, grade, price_per_kg]) =>
   ({ yard_name, area, latitude, longitude, grade, price_per_kg }));
 
+test("resolveGeoArgs: the shared pre-step the webhook and Try-it both use", async () => {
+  const { resolveGeoArgs } = await import("../src/search/geo.js");
+  const meta = inferColumnMeta(ROWS);
+  const geocode = async (p) => (/croydon/i.test(p) ? { lat: 51.3762, lng: -0.0982, label: "Croydon" } : null);
+  // Spoken location resolves and is stripped from the query.
+  const a = await resolveGeoArgs(meta, { query: "bright wire within 10 miles of croydon" }, geocode);
+  assert.equal(a._geo.label, "Croydon");
+  assert.equal(a._geo.radiusMiles, 10);
+  assert.ok(!/croydon/i.test(a.query), "the matched location phrase is stripped from the FTS query");
+  // Unresolvable place flags _geoFail, never throws.
+  const b = await resolveGeoArgs(meta, { query: "bright wire near Atlantis" }, geocode);
+  assert.equal(b._geoFail, "Atlantis");
+  // No coordinates in the data -> untouched.
+  const noGeo = inferColumnMeta([{ grade: "Bright Wire", price_per_kg: "£8" }]);
+  const c = await resolveGeoArgs(noGeo, { query: "bright wire near croydon" }, geocode);
+  assert.equal(c._geo, undefined);
+});
+
 test("haversine: London to Manchester is ~163 miles", () => {
   const d = haversineMiles(51.5074, -0.1278, 53.4808, -2.2426);
   assert.ok(Math.abs(d - 163) < 5, `got ${d}`);

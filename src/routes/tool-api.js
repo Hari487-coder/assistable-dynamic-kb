@@ -4,7 +4,7 @@ import { searchStructured } from "../search/structured.js";
 import { answerQuery } from "../search/answer.js";
 import { runSync } from "../sync/engine.js";
 import { classifyOutcome, callFlags } from "../analytics/quality.js";
-import { findGeoCols, geocodeUK, parseGeoFromQuery } from "../search/geo.js";
+import { resolveGeoArgs, geocodeUK } from "../search/geo.js";
 
 const DEADLINE_MS = 2500;
 const RATE_LIMIT_PER_MIN = 60;
@@ -122,25 +122,11 @@ export function createToolApiRouter({ db, logger, config, connectors, geocode = 
       } else if (source.type === "website") {
         out = answerQuery(db, source, args, { startedAt: started });
       } else {
-        // Resolve a spoken location ("near CR4 4HX", near+radius_miles args)
-        // to coordinates before the synchronous search. Soft everywhere: no
-        // geo columns, unresolvable place, or a dead geocoder just means the
-        // search runs without the distance leg.
-        try {
-          let columns = [];
-          try { columns = JSON.parse(source.column_meta_json || "[]"); } catch { columns = []; }
-          if (Array.isArray(columns) && findGeoCols(columns)) {
-            const fromQuery = parseGeoFromQuery(String(args.query ?? ""));
-            const near = typeof args.near === "string" && args.near.trim() ? args.near.trim() : fromQuery?.near;
-            if (near) {
-              const radiusMiles = Number(args.radius_miles) > 0 ? Number(args.radius_miles) : fromQuery?.radiusMiles ?? 25;
-              const pt = await geocode(near);
-              args = pt
-                ? { ...args, _geo: { ...pt, radiusMiles }, query: fromQuery?.matched ? String(args.query ?? "").replace(fromQuery.matched, " ") : args.query }
-                : { ...args, _geoFail: near };
-            }
-          }
-        } catch { /* the distance leg must never break the answer */ }
+        // Resolve a spoken location to coordinates before the sync search.
+        // Shared with the portal's "Try it" so both walk the same path.
+        let columns = [];
+        try { columns = JSON.parse(source.column_meta_json || "[]"); } catch { columns = []; }
+        args = await resolveGeoArgs(columns, args, geocode);
         let structured = searchStructured(db, source, args);
         // Anaphoric follow-up: re-run with the call's earlier filters filled in
         // (current filters win on any column they share).

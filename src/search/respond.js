@@ -1,7 +1,14 @@
 const SALIENT_MAX = 8;
+// Coordinates place a row on the map but are noise in a spoken/printed answer -
+// and, left in, they eat the salient-field budget and push out useful columns
+// like "updated_at" (which the freshness caveat then can't find). distance_miles
+// stays: it's the human-facing result of those coordinates.
+const HIDE_COL = /(^|_)(lat|latitude|lng|lon|long|longitude)(_|$)/i;
 
 function trimItem(structured) {
-  const entries = Object.entries(structured).filter(([, v]) => v !== null && v !== "").slice(0, SALIENT_MAX);
+  const entries = Object.entries(structured)
+    .filter(([k, v]) => v !== null && v !== "" && !HIDE_COL.test(k))
+    .slice(0, SALIENT_MAX);
   return Object.fromEntries(entries);
 }
 

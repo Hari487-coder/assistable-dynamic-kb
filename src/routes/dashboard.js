@@ -11,6 +11,7 @@ import { runSync, rollbackSource } from "../sync/engine.js";
 import { buildToolDefinition } from "../assistable/tool-def.js";
 import { qualitySummary } from "../analytics/quality.js";
 import { answerQuery } from "../search/answer.js";
+import { resolveGeoArgs } from "../search/geo.js";
 import { mineChecks, runAnswerChecks, checksSummary } from "../analytics/answer-checks.js";
 import { buildDiagnosticBundle } from "../diagnostics.js";
 
@@ -332,7 +333,11 @@ export function createDashboardRouter(deps) {
   router.post("/sources/:id/test", guard, withOwned(async (req, res, source) => {
     const started = Date.now();
     if (!source.active_batch_id) return res.json({ ok: false, error: "not_synced" });
-    const args = { query: String(req.body?.query || "") };
+    let columns = [];
+    try { columns = JSON.parse(source.column_meta_json || "[]"); } catch { columns = []; }
+    // Same geocoding pre-step the live webhook runs, so "within 10 miles of X"
+    // behaves in the Try-it box exactly as it will on a real call.
+    const args = await resolveGeoArgs(columns, { query: String(req.body?.query || "") });
     res.json(answerQuery(db, source, args, { startedAt: started }));
   }));
 

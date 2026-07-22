@@ -144,3 +144,24 @@ test("area + grade filtering still narrows the marketplace", () => {
   assert.equal(r.resultCount, 1);
   assert.equal(r.items[0].structured.yard_name, "Peak Copper Prices");
 });
+
+test("the stale-price caveat survives the salient-field trim (updated_at not dropped)", () => {
+  const iso = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const rows = [
+    // 9+ columns incl. lat/lng, with updated_at last - the exact shape that
+    // used to push updated_at past the 8-field trim and lose the age note.
+    { yard_name: "Fresh Yard", area: "London", postcode: "N1 1AA", latitude: 51.5, longitude: -0.1, grade: "Bright Wire", price_per_kg: "£8.20 – £8.70", whatsapp: "wa.me/1", updated_at: iso(0) },
+    { yard_name: "Sleepy Yard", area: "London", postcode: "N2 2BB", latitude: 51.6, longitude: -0.2, grade: "Bright Wire", price_per_kg: "£6.00 – £6.50", whatsapp: "wa.me/2", updated_at: iso(24) },
+  ];
+  const meta = inferColumnMeta(rows);
+  const source = { last_sync_at: new Date().toISOString(), schedule_minutes: 60, column_meta_json: JSON.stringify(meta) };
+  const speak = (row) => buildToolResponse({
+    source, structured: { resultCount: 1, items: [rowToItem(row, meta)], appliedFilters: {}, relaxations: [], alternatives: [] },
+    args: {}, tookMs: 1,
+  });
+  const stale = speak(rows[1]);
+  assert.match(stale.speech_hint, /weeks ago/, `age caveat must survive the trim: ${stale.speech_hint}`);
+  // And the coordinates must not leak into the shown card.
+  assert.ok(!("latitude" in stale.items[0]) && !("longitude" in stale.items[0]), "coordinates are internal, not shown");
+  assert.ok("updated_at" in stale.items[0], "the date that drives the caveat stays on the item");
+});

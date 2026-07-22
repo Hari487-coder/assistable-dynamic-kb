@@ -78,6 +78,27 @@ export async function geocodeUK(place, fetchImpl = globalThis.fetch) {
   return cache.get(key).value;
 }
 
+/**
+ * The async pre-step that turns a spoken/typed location into `args._geo`
+ * (coordinates) before the synchronous search. Shared so the live webhook AND
+ * the portal's "Try it" run the identical path - otherwise the owner tests a
+ * fiction. Soft everywhere: no geo columns, no location, or a dead geocoder
+ * just returns args unchanged (or flags `_geoFail`), never throws.
+ */
+export async function resolveGeoArgs(columns, args, geocode = geocodeUK) {
+  try {
+    if (!Array.isArray(columns) || !findGeoCols(columns)) return args;
+    const fromQuery = parseGeoFromQuery(String(args.query ?? ""));
+    const near = typeof args.near === "string" && args.near.trim() ? args.near.trim() : fromQuery?.near;
+    if (!near) return args;
+    const radiusMiles = Number(args.radius_miles) > 0 ? Number(args.radius_miles) : fromQuery?.radiusMiles ?? 25;
+    const pt = await geocode(near);
+    return pt
+      ? { ...args, _geo: { ...pt, radiusMiles }, query: fromQuery?.matched ? String(args.query ?? "").replace(fromQuery.matched, " ") : args.query }
+      : { ...args, _geoFail: near };
+  } catch { return args; }
+}
+
 const NOT_PLACES = new Set(["me", "here", "us", "you", "home", "we", "them"]);
 
 /**
