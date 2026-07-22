@@ -184,7 +184,13 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
       resultCount: structured.resultCount, items: speechItems, alternatives: speechAlts,
       relaxations: structured.relaxations, fmt,
     }),
-    guidance: "Data is live from the business's own system. If data_freshness is 'stale', say the info is from the last update. Never invent items not listed.",
+    // The distance line is decided HERE, in the result, because a global prompt
+    // rule wasn't enough to stop the model converting a postcode into an
+    // invented "X miles away". If no row carries a distance, say so plainly.
+    guidance: (speechItems.some((i) => typeof i.distance_miles === "number")
+      ? "Each yard's distance is in its distance_miles field - state exactly that, in miles. "
+      : "No distance was calculated (the customer gave no location). Do NOT state any distance or miles for any yard - not from the postcode, the town, or your own knowledge. ")
+      + "Data is live. If data_freshness is 'stale', say the info is from the last update. Never invent items, prices, or distances not listed.",
     took_ms: tookMs,
   };
   while (JSON.stringify(out).length > 1600 && out.items.length > 1) out.items.pop();

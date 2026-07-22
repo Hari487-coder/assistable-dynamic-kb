@@ -138,6 +138,14 @@ test("a price the yard hasn't touched in weeks is quoted with its age", () => {
   assert.match(speak(rows[1]), /weeks ago/, `a month-old price must not be read as today's rate: ${speak(rows[1])}`);
 });
 
+test("guidance forbids distance when none was calculated (no invented miles)", () => {
+  const { db, source } = seed();
+  // No location in the query -> no geo -> guidance must suppress distance.
+  const noLoc = buildToolResponse({ source, structured: searchStructured(db, source, { query: "bright wire in london" }), args: {}, tookMs: 1 });
+  assert.match(noLoc.guidance, /Do NOT state any distance/i, `guidance must forbid distance: ${noLoc.guidance}`);
+  assert.ok(!noLoc.items.some((i) => "distance_miles" in i), "no distance field when none was computed");
+});
+
 test("area + grade filtering still narrows the marketplace", () => {
   const { db, source } = seed();
   const r = searchStructured(db, source, { query: "bright wire in manchester" });
