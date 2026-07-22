@@ -158,7 +158,7 @@ td,th{padding:.65rem .85rem}
 }
 </style></head>
 <body><div id="bar"></div><div id="toast" role="status" aria-live="polite"></div>
-<div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a>
+<div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a><a href="/widget-test">Test</a>
 <a href="#" onclick="api('/logout',{}).then(()=>location='/login');return false">Log out</a></nav>
 ${body}
 <script>
