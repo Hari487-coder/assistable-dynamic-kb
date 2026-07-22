@@ -1,6 +1,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { startTestApp } from "./helpers.js";
+import { decryptSecret } from "../src/crypto.js";
 
 let t;
 before(async () => { t = await startTestApp(); });
@@ -50,6 +51,22 @@ test("re-submitting the same source name is a 409, not a duplicate", async () =>
   assert.match(out.error, /already have a source/i);
   const count = t.db.prepare("SELECT count(*) c FROM sources WHERE name = 'Scrap Prices'").get().c;
   assert.equal(count, 1);
+});
+
+test("a key-protected feed keeps its auth header (stored encrypted)", async () => {
+  let res = await post("/signup", { email: "feed@d.co", password: "longenough1" });
+  const cookie = res.headers.get("set-cookie").split(";")[0];
+  res = await post("/sources/new", {
+    type: "feed", name: "Partner price feed", schedule_minutes: 60,
+    url_feed: "https://partner.example.com/prices.json",
+    auth_header_name: "x-api-key", auth_header_value: "secret-key-123",
+    assistant_ids: [],
+  }, cookie);
+  const { source_id } = await res.json();
+  const row = t.db.prepare("SELECT config_ct FROM sources WHERE id = ?").get(source_id);
+  assert.ok(!row.config_ct.includes("secret-key-123"), "the feed key must not sit in plaintext");
+  const cfg = JSON.parse(decryptSecret(row.config_ct, Buffer.alloc(32, 5).toString("base64")));
+  assert.deepEqual(cfg.authHeader, { name: "x-api-key", value: "secret-key-123" });
 });
 
 test("CSRF: mutation without header is rejected", async () => {

@@ -9,6 +9,23 @@ import { runDailyChecks } from "../analytics/answer-checks.js";
 const RETRY_MINUTES = [1, 5, 15];
 const MAX_ITEMS_PER_SOURCE = 50_000;
 
+/**
+ * Fire-and-forget POST to ALERT_WEBHOOK (Slack, Zapier, Make, anything that
+ * takes JSON). Deliberately never awaited and never throwing: an alerting
+ * channel that can break the sync it is reporting on is worse than none.
+ */
+export function notifyAlert(config, logger, payload, fetchImpl = globalThis.fetch) {
+  if (!config?.alertWebhook) return null;
+  const body = { instance: config.baseUrl, at: new Date().toISOString(), ...payload };
+  return fetchImpl(config.alertWebhook, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    // Slack-compatible: it reads `text`, everything else rides alongside.
+    body: JSON.stringify({ text: `Live KB: ${payload.event} - ${payload.source?.name ?? ""} (${payload.error ?? ""})`, ...body }),
+    signal: AbortSignal.timeout(8000),
+  }).catch((err) => logger.warn("alert webhook failed", { error: String(err?.message || err) }));
+}
+
 export function classifyError(err) {
   if (err?.permanent === true) return "permanent";
   const m = String(err?.message || "");
@@ -54,6 +71,19 @@ export async function runSync(deps, sourceId, { manual = false, force = false } 
     db.prepare("UPDATE sources SET status=?, consecutive_failures=?, next_run_at=? WHERE id=?")
       .run(status, failures, delayMin ? new Date(Date.now() + delayMin * 60_000).toISOString() : null, sourceId);
     logger.error("sync failed", { sourceId, runId, kind, error });
+    // A source that stops refreshing is invisible until someone opens the
+    // portal - meanwhile the agent keeps quoting last week's prices to real
+    // callers. Alert on the states that mean "this needs a human": a
+    // permanent failure, or the point where we stop claiming to be current.
+    if (kind === "permanent" || status === "stale") {
+      notifyAlert(config, logger, {
+        event: kind === "permanent" ? "source_broken" : "source_stale",
+        source: { id: sourceId, name: source.name, type: source.type },
+        consecutive_failures: failures,
+        error,
+        serving: hasData ? "still answering from the last good data" : "not answering - no data has ever synced",
+      });
+    }
     return { ok: false, runId, error };
   };
 

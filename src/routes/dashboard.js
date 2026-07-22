@@ -33,6 +33,11 @@ const SOURCE_BODY = z.object({
   csv_text: z.string().max(5 * 1024 * 1024).optional(),
   connection_string: z.string().max(500).optional(),
   table: z.string().max(63).optional(),
+  // A protected feed is the normal shape for a partner's data export: the
+  // connector has always supported an auth header, the form just never let
+  // anyone enter one, so key-protected feeds were unusable from the portal.
+  auth_header_name: z.string().trim().max(64).optional(),
+  auth_header_value: z.string().max(500).optional(),
   assistant_ids: z.array(z.string()).default([]),
 });
 
@@ -216,9 +221,11 @@ export function createDashboardRouter(deps) {
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.issues[0].message });
     const b = parsed.data;
     const url = b.url ?? b.url_feed ?? b.url_site ?? b.url_table;
+    const authHeader = b.auth_header_name && b.auth_header_value
+      ? { name: b.auth_header_name, value: b.auth_header_value } : null;
     const cfg = b.type === "csv" ? { csv_text: b.csv_text }
       : b.type === "database" ? { connectionString: b.connection_string, table: b.table }
-      : { url };
+      : { url, ...(b.type === "feed" && authHeader ? { authHeader } : {}) };
     if (b.type === "csv" && !cfg.csv_text) return res.status(400).json({ ok: false, error: "CSV content required" });
     if (b.type !== "csv" && !cfg.url && !cfg.connectionString) return res.status(400).json({ ok: false, error: "config incomplete" });
     // Double-submits and impatient re-clicks created six identical sources for

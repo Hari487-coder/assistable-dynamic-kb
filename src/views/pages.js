@@ -313,7 +313,11 @@ ${TYPE_CARDS.map((c, i) => `
 </fieldset>
 <div data-cfg="csv"><label>Your CSV file <input type="file" id="csvfile" accept=".csv"></label>
 <small>The first row should be column names (make, model, price...).</small></div>
-<div data-cfg="feed" style="display:none"><label>Feed link <input name="url_feed" type="url" placeholder="https://yourstore.com/products.json" disabled></label></div>
+<div data-cfg="feed" style="display:none"><label>Feed link <input name="url_feed" type="url" placeholder="https://yourstore.com/products.json" disabled></label>
+<details><summary>The feed needs a key or password</summary>
+<label>Header name <input name="auth_header_name" placeholder="e.g. Authorization or x-api-key" autocomplete="off" disabled></label>
+<label>Header value <input name="auth_header_value" type="password" placeholder="e.g. Bearer abc123" autocomplete="off" disabled></label>
+<small>Sent with every fetch and stored encrypted. Leave both blank for a public feed.</small></details></div>
 <div data-cfg="website" style="display:none"><label>Your website <input name="url_site" type="url" placeholder="https://yourbusiness.com" disabled></label></div>
 <div data-cfg="webtable" style="display:none"><label>Link to the page with the table <input name="url_table" type="url" placeholder="https://yourbusiness.com/prices" disabled></label></div>
 <div data-cfg="database" style="display:none"><label>Connection string <input name="connection_string" placeholder="postgres://..." disabled></label>

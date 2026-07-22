@@ -46,5 +46,9 @@ export function loadConfig(env = process.env, { autoKey = false } = {}) {
     // set, the instance rebuilds its account, connection, sources and tools
     // by itself instead of serving "not synced" until a human notices.
     bootstrap: env.BOOTSTRAP || null,
+    // Where to shout when a source breaks or goes stale. Any JSON webhook -
+    // Slack, Zapier, Make. Without it a dead feed is silent until someone
+    // happens to open the portal.
+    alertWebhook: env.ALERT_WEBHOOK || null,
   };
 }
