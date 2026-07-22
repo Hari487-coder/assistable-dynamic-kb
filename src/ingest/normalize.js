@@ -123,12 +123,17 @@ export function inferColumnMeta(rows) {
       const s = String(v).trim();
       freq.set(s, (freq.get(s) ?? 0) + 1);
     }
+    // A per-row "last updated" column is how a marketplace admits that its
+    // sellers publish at different times. Marked here so an answer can say
+    // whose price is from today and whose is three weeks old.
+    const dateish = META_COL.test(name) && vals.length > 0 &&
+      vals.filter((v) => DATE_LIKE.test(String(v).trim())).length >= vals.length * 0.9;
     const isCategorical = freq.size > 0 && freq.size <= MAX_DISTINCTS &&
       (freq.size <= 25 || freq.size / vals.length <= 0.5);
     if (isCategorical) {
       // Frequency-ordered so the tool description's top-25 shows what matters.
       const distincts = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
-      return { name, kind: "categorical", distincts };
+      return { name, kind: "categorical", distincts, ...(dateish ? { dateish: true } : {}) };
     }
     // A short, near-unique text column ("1955 Mercedes-Benz 300 SLR") is the
     // row's identity — what a person would call it. Single-token values with
@@ -137,9 +142,9 @@ export function inferColumnMeta(rows) {
     const avgLen = strs.reduce((a, s) => a + s.length, 0) / strs.length;
     const idCodes = strs.filter((s) => /^[\w-]*\d[\w-]*$/.test(s)).length;
     if (freq.size / vals.length >= 0.8 && avgLen <= 40 && idCodes / strs.length <= 0.5) {
-      return { name, kind: "text", identityish: true };
+      return { name, kind: "text", identityish: true, ...(dateish ? { dateish: true } : {}) };
     }
-    return { name, kind: "text" };
+    return { name, kind: "text", ...(dateish ? { dateish: true } : {}) };
   });
 }
 

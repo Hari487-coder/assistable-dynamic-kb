@@ -120,6 +120,24 @@ test("titles name the row, not its postcode or contact details", () => {
   assert.ok(!/SE0|wa\.me|true/.test(title), `codes and contacts must not fill the title: ${title}`);
 });
 
+test("a price the yard hasn't touched in weeks is quoted with its age", () => {
+  const iso = (daysAgo) => new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10);
+  const rows = [
+    { yard_name: "Fresh Yard", grade: "Bright Wire", price_per_kg: "£8.20 – £8.70", updated_at: iso(0) },
+    { yard_name: "Sleepy Yard", grade: "Bright Wire", price_per_kg: "£6.00 – £6.50", updated_at: iso(24) },
+  ];
+  const meta = inferColumnMeta(rows);
+  assert.equal(meta.find((c) => c.name === "updated_at").dateish, true);
+  const source = { last_sync_at: new Date().toISOString(), schedule_minutes: 60, column_meta_json: JSON.stringify(meta) };
+  const speak = (row) => buildToolResponse({
+    source,
+    structured: { resultCount: 1, items: [rowToItem(row, meta)], appliedFilters: {}, relaxations: [], alternatives: [] },
+    args: {}, tookMs: 1,
+  }).speech_hint;
+  assert.ok(!/old|weeks ago/.test(speak(rows[0])), `today's price needs no caveat: ${speak(rows[0])}`);
+  assert.match(speak(rows[1]), /weeks ago/, `a month-old price must not be read as today's rate: ${speak(rows[1])}`);
+});
+
 test("area + grade filtering still narrows the marketplace", () => {
   const { db, source } = seed();
   const r = searchStructured(db, source, { query: "bright wire in manchester" });

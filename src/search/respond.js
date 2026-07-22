@@ -43,12 +43,27 @@ function priceText(item, key, fmt) {
  * (This used to read `item.year/make/model`, so every non-car business heard
  * the literal fallback "a match".)
  */
+// On a marketplace each seller publishes on their own schedule, so the sync
+// being fresh says nothing about whether THIS row is. A price the seller last
+// touched weeks ago must not be read out as today's rate.
+const STALE_ROW_DAYS = 3;
+function rowAgeNote(item, fmt) {
+  for (const key of fmt.dates ?? []) {
+    const ts = Date.parse(item[key]);
+    if (Number.isNaN(ts)) continue;
+    const days = Math.floor((Date.now() - ts) / 864e5);
+    if (days < STALE_ROW_DAYS) return "";
+    return days < 14 ? ` (that price is ${days} days old)` : ` (that price is from ${Math.round(days / 7)} weeks ago)`;
+  }
+  return "";
+}
+
 function itemPhrase(item, fmt = {}) {
   const label = item.title
     || Object.entries(item).find(([, v]) => typeof v === "string" && v.trim())?.[1]
     || "one option";
   const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k));
-  if (priced) return `${label} at ${priceText(item, priced[0], fmt)}`;
+  if (priced) return `${label} at ${priceText(item, priced[0], fmt)}${rowAgeNote(item, fmt)}`;
   // Listed but unpriced (a marketplace seller who hasn't published today). Say
   // so out loud: "one match: New Yard Ltd" invites the model to invent a
   // number, and silently dropping the row hides a real business from a caller.
@@ -72,15 +87,16 @@ function speechHint({ resultCount, items, alternatives, relaxations, fmt }) {
 // How each column should be spoken: the currency the ingest saw in the raw
 // values, and the unit its name declares.
 function columnFormats(source) {
-  const currencies = {}, units = {}, money = [];
+  const currencies = {}, units = {}, money = [], dates = [];
   try {
     for (const c of JSON.parse(source.column_meta_json || "[]")) {
       if (c.currency) currencies[c.name] = c.currency;
       if (c.unit) units[c.name] = c.unit;
       if (c.kind === "numeric" && MONEY_COL.test(c.name)) money.push(c.name);
+      if (c.dateish) dates.push(c.name);
     }
   } catch { /* corrupt meta -> name-based fallback */ }
-  return { currencies, units, money };
+  return { currencies, units, money, dates };
 }
 
 export function buildToolResponse({ source, structured, textResult, args, tookMs }) {

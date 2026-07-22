@@ -19,9 +19,12 @@ const GRADES = [
   ["Lead", "Clean soft lead sheet and pipe", 1.6, 1.55, 1.5],
 ];
 const AREAS = ["London", "Manchester", "Birmingham"];
+// Priced today: a fixed date here would age into "that price is N weeks old"
+// and break these assertions on the calendar rather than on the code.
+const TODAY = new Date().toISOString().slice(0, 10);
 const ROWS = GRADES.flatMap(([grade, description, ...prices]) =>
   AREAS.map((area, i) => ({
-    grade, description, price_per_kg_gbp: String(prices[i]), area, last_updated: "2026-07-18",
+    grade, description, price_per_kg_gbp: String(prices[i]), area, last_updated: TODAY,
   })));
 
 let db, source, columns;
