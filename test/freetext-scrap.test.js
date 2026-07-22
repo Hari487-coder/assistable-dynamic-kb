@@ -66,7 +66,7 @@ test("the reported query now answers with ONE row, not 13", () => {
 test("speech_hint names the item and its price in the right currency", () => {
   const structured = searchStructured(db, source, { query: "what's bright copper going for in london" });
   const out = buildToolResponse({ source, structured, args: {}, tookMs: 1 });
-  assert.equal(out.speech_hint, "Yes - we have one match: Bright Copper London at £7.20.");
+  assert.equal(out.speech_hint, "Yes - we have one match: Bright Copper London at £7.20 per kilo.");
   assert.ok(!out.speech_hint.includes("a match"), "no literal placeholder");
   assert.ok(!out.speech_hint.includes("$"), "GBP column must not print dollars");
 });
@@ -75,7 +75,7 @@ test("multi-match hint names both options instead of repeating placeholders", ()
   const structured = searchStructured(db, source, { query: "bright copper prices" });
   const out = buildToolResponse({ source, structured, args: {}, tookMs: 1 });
   assert.equal(out.result_count, 3, "three areas carry bright copper");
-  assert.match(out.speech_hint, /Best fit: Bright Copper \w+ at £7\.\d\d; also Bright Copper \w+ at £7\.\d\d\./);
+  assert.match(out.speech_hint, /Best fit: Bright Copper \w+ at £7\.\d\d per kilo; also Bright Copper \w+ at £7\.\d\d per kilo\./);
 });
 
 test("longest category value wins (Braziery Copper is not plain Copper)", () => {

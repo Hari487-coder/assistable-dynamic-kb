@@ -20,6 +20,10 @@ const MIN_RE = /(?:over|above|more than|at least|min(?:imum)?)\s*\$?\s*([\d][\d,
 const YEAR_RE = /\b(19[5-9]\d|20[0-4]\d)\b/;
 
 const SORTS = [
+  // Sell-side vocabulary. On a marketplace where the caller is SELLING (scrap
+  // yards, buyers of gold, part-exchange), "best" means the HIGHEST number, the
+  // opposite of a shopper's "best price" - so only unambiguous phrases here.
+  { re: /highest[- ]?(?:paying|price|rate|payer)|pays?[- ](?:the )?most|paying[- ](?:the )?most|top[- ](?:paying|payer|rate|price)|best[- ]?pay(?:ing|er)|who pays/i, colKind: "price", dir: "desc" },
   { re: /cheapest|lowest price|least expensive|most affordable|low to high/i, colKind: "price", dir: "asc" },
   { re: /most expensive|priciest|high to low/i, colKind: "price", dir: "desc" },
   { re: /newest|latest|most recent/i, colKind: "year", dir: "desc" },

@@ -111,8 +111,8 @@ export const SOURCE_RULES = [
       const bad = s.columns.filter((c) => MONEYISH.test(c.name) && c.kind !== "numeric");
       return bad.length
         ? f("critical", `Price column parsed as ${bad[0].kind}, not a number`,
-          `Columns: ${bad.map((c) => c.name).join(", ")}. Range filters ("under 30k"), sorting ("cheapest") and quartiles ("cheap") all silently do nothing on a text column. Usually an unparsed currency format, or values like "POA"/"call for price" pushing it under the 90% numeric threshold.`,
-          "Check the raw values for that column. If they are POA-style placeholders, blank them; if they are a currency form we do not parse yet, that is a parser fix.")
+          `Columns: ${bad.map((c) => c.name).join(", ")}. Range filters ("under 30k"), sorting ("cheapest") and quartiles ("cheap") all silently do nothing on a text column. Usually a currency or number format we do not parse yet - prices written as words ("seven fifty"), or with trailing prose ("£4.05 negotiable"). Placeholder values (POA, call for price, TBC) and bands ("£8.20 - £8.70") are already handled and do not cause this.`,
+          "Check the raw values for that column: they need to be numbers, optionally with a currency symbol or a from-to band. If the format looks reasonable and still lands here, that is a parser fix.")
         : null;
     },
   },

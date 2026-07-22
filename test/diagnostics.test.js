@@ -38,8 +38,11 @@ function seed({ moneyAsText = false } = {}) {
   db.prepare("INSERT INTO connections (user_id,api_key_ct,label,status,created_at,updated_at) VALUES ('u1',?,'key','verified',?,?)")
     .run(SECRETS.apiKeyCt, now, now);
 
+  // Prices written as prose: unparseable, and the exact state this diagnostic
+  // exists to catch. (POA-style placeholders and bands are handled at ingest
+  // now, so they no longer produce a text money column.)
   const rows = moneyAsText
-    ? [{ material: "Copper", price_per_kg: "POA" }, { material: "Lead", price_per_kg: "call us" }, { material: "Brass", price_per_kg: "£4.05" }]
+    ? [{ material: "Copper", price_per_kg: "seven pounds fifty" }, { material: "Lead", price_per_kg: "one sixty a kilo" }, { material: "Brass", price_per_kg: "ask for today's rate" }]
     : [{ material: "Bare Bright Copper", price_per_kg: "£7.20" }, { material: "Lead", price_per_kg: "£1.60" }];
   const meta = inferColumnMeta(rows);
   db.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,secret,push_secret,status,active_batch_id,column_meta_json,last_sync_at,schedule_minutes,created_at)
@@ -114,8 +117,21 @@ test("column structure is always shared, because it is the diagnosis", () => {
 test("diagnose catches a price column that parsed as text", () => {
   const b = buildDiagnosticBundle(seed({ moneyAsText: true }), CONFIG);
   const hit = diagnose(b).find((f) => f.id === "money-column-is-text");
-  assert.ok(hit, "a POA-riddled price column must be flagged");
+  assert.ok(hit, "prices written as prose must be flagged");
   assert.equal(hit.severity, "critical");
+});
+
+test("a marketplace column of bands and placeholders is NOT flagged", () => {
+  const db = seed();
+  const meta = inferColumnMeta([
+    { yard: "A", price_per_kg: "£8.20 – £8.70" },
+    { yard: "B", price_per_kg: "£7.70 – £7.80" },
+    { yard: "C", price_per_kg: "POA" },
+  ]);
+  db.prepare("UPDATE sources SET column_meta_json = ? WHERE id = 'src-1234-abcd'").run(JSON.stringify(meta));
+  const findings = diagnose(buildDiagnosticBundle(db, CONFIG));
+  assert.ok(!findings.find((f) => f.id === "money-column-is-text"),
+    "banded prices with some yards unpriced are healthy, not broken");
 });
 
 test("diagnose catches a tool attached to no assistants, and the on-disk key", () => {

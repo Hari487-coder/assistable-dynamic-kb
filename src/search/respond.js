@@ -23,39 +23,64 @@ function money(n, key = "", detected = null) {
 }
 
 /**
+ * Say a price the way the business published it: the real band when there is
+ * one ("£8.20 to £8.70"), and always the unit, because "£7.20" on its own is
+ * ambiguous by a factor of a thousand between per-kilo and per-tonne trades.
+ */
+function priceText(item, key, fmt) {
+  const currency = fmt.currencies?.[key] ?? null;
+  const unit = fmt.units?.[key] ? ` ${fmt.units[key]}` : "";
+  const band = item[`${key}_range`];
+  if (Array.isArray(band) && band.length === 2 && band[0] !== band[1]) {
+    return `${money(band[0], key, currency)} to ${money(band[1], key, currency)}${unit}`;
+  }
+  return `${money(item[key], key, currency)}${unit}`;
+}
+
+/**
  * Name one result the way a person would say it. Data-driven, not
  * domain-specific: the ingest-time title plus the most money-like number.
  * (This used to read `item.year/make/model`, so every non-car business heard
  * the literal fallback "a match".)
  */
-function itemPhrase(item, currencies = {}) {
+function itemPhrase(item, fmt = {}) {
   const label = item.title
     || Object.entries(item).find(([, v]) => typeof v === "string" && v.trim())?.[1]
     || "one option";
   const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k));
-  return priced ? `${label} at ${money(priced[1], priced[0], currencies[priced[0]] ?? null)}` : String(label);
+  if (priced) return `${label} at ${priceText(item, priced[0], fmt)}`;
+  // Listed but unpriced (a marketplace seller who hasn't published today). Say
+  // so out loud: "one match: New Yard Ltd" invites the model to invent a
+  // number, and silently dropping the row hides a real business from a caller.
+  if (fmt.money?.length) return `${label} (no price published yet)`;
+  return String(label);
 }
 
-function speechHint({ resultCount, items, alternatives, relaxations, currencies }) {
+function speechHint({ resultCount, items, alternatives, relaxations, fmt }) {
   if (resultCount > 0) {
-    if (resultCount === 1) return `Yes - we have one match: ${itemPhrase(items[0], currencies)}.`;
+    if (resultCount === 1) return `Yes - we have one match: ${itemPhrase(items[0], fmt)}.`;
     // Voice callers decide fastest hearing the top two options, not just one.
-    const second = items[1] ? `; also ${itemPhrase(items[1], currencies)}` : "";
-    return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0], currencies)}${second}.`;
+    const second = items[1] ? `; also ${itemPhrase(items[1], fmt)}` : "";
+    return `Yes - ${resultCount} matches. Best fit: ${itemPhrase(items[0], fmt)}${second}.`;
   }
   if (alternatives.length) {
-    return `No exact match, but the closest we have is ${itemPhrase(alternatives[0], currencies)}. ${relaxations[0] || ""}`.trim();
+    return `No exact match, but the closest we have is ${itemPhrase(alternatives[0], fmt)}. ${relaxations[0] || ""}`.trim();
   }
   return "Nothing in our current live data matches that. Offer to check related options or take a message.";
 }
 
-// Currency symbols the ingest detected in each column's raw values.
-function columnCurrencies(source) {
-  const map = {};
+// How each column should be spoken: the currency the ingest saw in the raw
+// values, and the unit its name declares.
+function columnFormats(source) {
+  const currencies = {}, units = {}, money = [];
   try {
-    for (const c of JSON.parse(source.column_meta_json || "[]")) if (c.currency) map[c.name] = c.currency;
+    for (const c of JSON.parse(source.column_meta_json || "[]")) {
+      if (c.currency) currencies[c.name] = c.currency;
+      if (c.unit) units[c.name] = c.unit;
+      if (c.kind === "numeric" && MONEY_COL.test(c.name)) money.push(c.name);
+    }
   } catch { /* corrupt meta -> name-based fallback */ }
-  return map;
+  return { currencies, units, money };
 }
 
 export function buildToolResponse({ source, structured, textResult, args, tookMs }) {
@@ -104,7 +129,7 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
     // structured payload was why every phrase collapsed to "a match".
     speech_hint: speechHint({
       resultCount: structured.resultCount, items, alternatives,
-      relaxations: structured.relaxations, currencies: columnCurrencies(source),
+      relaxations: structured.relaxations, fmt: columnFormats(source),
     }),
     guidance: "Data is live from the business's own system. If data_freshness is 'stale', say the info is from the last update. Never invent items not listed.",
     took_ms: tookMs,
