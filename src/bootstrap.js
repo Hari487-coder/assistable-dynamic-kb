@@ -54,6 +54,16 @@ export async function bootstrapFromEnv({ db, config, logger, connectors, makeCli
     }
   }
 
+  // Stable across wipes: the tool's URL embeds the source id and its auth is
+  // the source secret, so if BOTH are derived from the ENCRYPTION_KEY (an env
+  // var that survives wipes) instead of randomised, a tool created in a past
+  // life keeps working after a redeploy - no dead orphans, no accumulation.
+  const stableUuid = (seed) => {
+    const h = crypto.createHash("sha256").update(`${config.encryptionKey}:${seed}`).digest("hex");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+  };
+  const stableSecret = (seed) => crypto.createHmac("sha256", config.encryptionKey).update(seed).digest("base64url");
+
   const summary = { ran: true, email, sources: 0, tools: 0, warnings: [] };
   for (const s of Array.isArray(plan.sources) ? plan.sources : []) {
     try {
@@ -61,13 +71,13 @@ export async function bootstrapFromEnv({ db, config, logger, connectors, makeCli
       const cfg = type === "csv" ? { csv_text: s.csv_text }
         : type === "database" ? { connectionString: s.connection_string ?? s.connectionString, table: s.table }
         : { url: s.url };
-      const sourceId = crypto.randomUUID();
-      const secret = newSecret();
+      const sourceId = stableUuid(`source:${s.name}`);
+      const secret = stableSecret(`tool-secret:${s.name}`);
       db.prepare(`INSERT INTO sources (id,user_id,type,name,config_ct,schedule_minutes,secret,push_secret,created_at)
                   VALUES (?,?,?,?,?,?,?,?,?)`)
         .run(sourceId, userId, type, String(s.name || "Live data"),
              encryptSecret(JSON.stringify(cfg), config.encryptionKey),
-             Number(s.schedule_minutes) || 1440, secret, newSecret(), now());
+             Number(s.schedule_minutes) || 1440, secret, stableSecret(`push-secret:${s.name}`), now());
       summary.sources++;
 
       const sync = await runSync({ db, config, logger, connectors }, sourceId, { manual: true });
@@ -76,16 +86,22 @@ export async function bootstrapFromEnv({ db, config, logger, connectors, makeCli
       if (client) {
         const source = db.prepare("SELECT * FROM sources WHERE id = ?").get(sourceId);
         const def = buildToolDefinition(source, JSON.parse(source.column_meta_json || "[]"), { baseUrl: config.baseUrl, secret });
-        // A previous life of this instance may have left a same-named tool
-        // behind in Assistable (its id died with the disk). Delete by name
-        // where the API lets us list; otherwise fall back to a suffixed name.
+        // Sweep same-named tools from past lives, INCLUDING the "-2"/"-3"
+        // variants a 409-rename left behind (the old exact-match missed those,
+        // which is how three copies piled up on one assistant). The freshly
+        // recreated source has the same stable URL+secret, so anything we miss
+        // still works rather than 404s.
+        let existingTool = null;
         try {
           const existing = await client.listTools();
           for (const t of Array.isArray(existing) ? existing : []) {
-            if (t?.name === def.name && t?.id) await client.deleteTool(t.id).catch(() => {});
+            if (!t?.id || typeof t?.name !== "string") continue;
+            if (t.name === def.name) existingTool = t;              // reuse the canonical one
+            else if (t.name.startsWith(`${def.name}-`)) await client.deleteTool(t.id).catch(() => {}); // drop the -2/-3 dupes
           }
-        } catch { /* list unsupported - createTool's 409 fallback covers it */ }
-        const tool = await client.createTool(def);
+        } catch { /* list unsupported - reuse-by-create below still yields a working tool */ }
+        const tool = existingTool ?? await client.createTool(def);
+        if (existingTool) await client.updateTool(tool.id, def).catch(() => {}); // refresh its schema/secret in place
         const assistantIds = Array.isArray(s.assistant_ids) ? s.assistant_ids : [];
         for (const aid of assistantIds) await client.assignTool(tool.id, aid).catch((e) =>
           summary.warnings.push(`source "${s.name}": could not attach assistant ${aid} (${e.message})`));
