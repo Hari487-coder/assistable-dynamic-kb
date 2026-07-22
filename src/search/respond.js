@@ -12,6 +12,29 @@ function trimItem(structured) {
   return Object.fromEntries(entries);
 }
 
+// The item as the LLM should SEE it. A banded price is shown as its range
+// string ("£8.00 to £8.95 per kilo") with the bare midpoint removed, so the
+// model can't read a single figure the yard never published and speak it as
+// the price. Coordinates are dropped; distance_miles is spelled out.
+function displayItem(structured, fmt = {}) {
+  const out = {};
+  let shown = 0;
+  for (const [k, v] of Object.entries(structured)) {
+    if (v === null || v === "" || HIDE_COL.test(k)) continue;
+    if (k.endsWith("_range")) continue; // folded into its base column below
+    if (shown >= SALIENT_MAX) break;
+    if ((fmt.money ?? []).includes(k) && Array.isArray(structured[`${k}_range`])) {
+      out[k] = priceText({ [k]: v, [`${k}_range`]: structured[`${k}_range`] }, k, fmt);
+    } else if (k === "distance_miles" && typeof v === "number") {
+      out[k] = `${v} miles`;
+    } else {
+      out[k] = v;
+    }
+    shown++;
+  }
+  return out;
+}
+
 // Currency comes from the column name when the business tells us ("price_per
 // _kg_gbp" -> £). Guessing $ for a UK scrap dealer is worse than useless.
 const CURRENCIES = [[/gbp|pound|sterling/i, "£"], [/eur/i, "€"], [/inr|rupee/i, "₹"], [/aud/i, "A$"], [/cad/i, "CA$"]];
@@ -142,8 +165,14 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
       took_ms: tookMs,
     };
   }
-  const items = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...trimItem(i.structured) })) : [];
-  const alternatives = structured.alternatives.map((i) => ({ title: i.title, ...trimItem(i.structured) }));
+  const fmt = columnFormats(source);
+  // Two shapes of the same rows: DISPLAY items (range shown as a string, no
+  // bare midpoint, no coordinates) are what the LLM reads; SPEECH items keep
+  // the raw numbers + _range so priceText can render "£8.00 to £8.95 per kilo".
+  const items = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...displayItem(i.structured, fmt) })) : [];
+  const alternatives = structured.alternatives.map((i) => ({ title: i.title, ...displayItem(i.structured, fmt) }));
+  const speechItems = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...i.structured })) : [];
+  const speechAlts = structured.alternatives.map((i) => ({ title: i.title, ...i.structured }));
   const out = {
     ...base,
     result_count: structured.resultCount,
@@ -151,11 +180,9 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
     relaxations: structured.relaxations,
     items,
     ...(alternatives.length ? { close_alternatives: alternatives } : {}),
-    // Speak from the DISPLAY items - they carry the title. Passing the raw
-    // structured payload was why every phrase collapsed to "a match".
     speech_hint: speechHint({
-      resultCount: structured.resultCount, items, alternatives,
-      relaxations: structured.relaxations, fmt: columnFormats(source),
+      resultCount: structured.resultCount, items: speechItems, alternatives: speechAlts,
+      relaxations: structured.relaxations, fmt,
     }),
     guidance: "Data is live from the business's own system. If data_freshness is 'stale', say the info is from the last update. Never invent items not listed.",
     took_ms: tookMs,

@@ -155,11 +155,13 @@ test("end-to-end: the tool endpoint geocodes 'near' and answers with distances",
     body: JSON.stringify({ args: payload, meta_data: {}, metadata: {}, call: { call_id: "cc-geo" } }),
   }).then((r) => r.json());
 
-  // Typed args, as the LLM should send them.
+  // Typed args, as the LLM should send them. distance_miles is shown to the
+  // LLM as a spelled-out string ("2 miles"), so parse the number back to check.
+  const milesOf = (i) => Number(String(i.distance_miles ?? "").replace(/[^\d.]/g, ""));
   let out = await call({ query: "best bright wire price", near: "Croydon", radius_miles: 10 });
   assert.equal(out.ok, true);
   assert.match(out.speech_hint, /miles away/, `distance must be spoken: ${out.speech_hint}`);
-  assert.ok(out.items.every((i) => i.distance_miles <= 10));
+  assert.ok(out.items.every((i) => milesOf(i) <= 10));
 
   // Location inside the spoken query, no typed args.
   out = await call({ query: "bright wire within 5 miles of Croydon" });
@@ -168,7 +170,7 @@ test("end-to-end: the tool endpoint geocodes 'near' and answers with distances",
   // Follow-up carries the location through conversation memory.
   out = await call({ query: "and what about the highest paying one" });
   assert.ok(out.ok, true);
-  assert.ok((out.items ?? []).every((i) => i.distance_miles == null || i.distance_miles <= 5), JSON.stringify(out.items));
+  assert.ok((out.items ?? []).every((i) => i.distance_miles == null || milesOf(i) <= 5), JSON.stringify(out.items));
 
   srv.close();
 });
