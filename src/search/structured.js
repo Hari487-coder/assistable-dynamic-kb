@@ -3,6 +3,7 @@ import { deriveIntent } from "./intent.js";
 import { correctTokens } from "./spell.js";
 import { parseNumericLike } from "../ingest/normalize.js";
 import { paramName } from "../assistable/tool-def.js";
+import { findGeoCols, haversineMiles } from "./geo.js";
 
 const SENTINEL = (v) => v === "" || v === 0 || v === null || v === undefined;
 
@@ -67,7 +68,7 @@ function extractFilters(args, columns) {
   return kept;
 }
 
-function runQuery(db, source, filters, query, sort = null) {
+function filterWhere(source, filters) {
   const where = ["i.source_id = ?", "i.batch_id = ?"];
   const params = [];
   for (const f of filters) {
@@ -79,8 +80,11 @@ function runQuery(db, source, filters, query, sort = null) {
     else if (f.op === "eq") { where.push(`CAST(${path} AS REAL) = ?`); params.push(pathArg, f.value); }
     else { where.push(`${path} = ?`); params.push(pathArg, f.resolved ?? f.value); }
   }
-  const whereSql = where.join(" AND ");
-  const baseParams = [source.id, source.active_batch_id, ...params];
+  return { whereSql: where.join(" AND "), baseParams: [source.id, source.active_batch_id, ...params] };
+}
+
+function runQuery(db, source, filters, query, sort = null) {
+  const { whereSql, baseParams } = filterWhere(source, filters);
   const count = (extraSql = "", extraParams = []) =>
     db.prepare(`SELECT count(*) c FROM items i ${extraSql ? `JOIN items_fts ON items_fts.rowid = i.rowid` : ""}
                 WHERE ${whereSql}${extraSql}`).get(...baseParams, ...extraParams).c;
@@ -190,6 +194,46 @@ export function searchStructured(db, source, args = {}) {
 
   const wrap = (rows) => rows.map((r) => ({ ...r, structured: JSON.parse(r.structured_json) }));
   const ftsQuery = intent.cleanedQuery;
+
+  // The location the caller named couldn't be resolved: search runs without
+  // the distance leg, and the answer says so instead of silently ignoring it.
+  if (args._geoFail) relaxations.push(`couldn't locate "${args._geoFail}" - searched without distance`);
+
+  // Distance leg: rows carry lat/lng and the caller's location is resolved.
+  // Runs in JS over the filtered candidate set (bounded) because "distance
+  // from HERE" is per-query - it can't live in an index.
+  const geoCols = args._geo ? findGeoCols(columns) : null;
+  if (geoCols) {
+    const point = args._geo;
+    const radius = Math.min(500, Math.max(1, Number(point.radiusMiles) || 25));
+    const { whereSql, baseParams } = filterWhere(source, active);
+    const candidates = wrap(db.prepare(`SELECT i.* FROM items i WHERE ${whereSql} ORDER BY i.rowid LIMIT 2000`).all(...baseParams));
+    const placed = candidates.flatMap((r) => {
+      const la = r.structured[geoCols.lat], ln = r.structured[geoCols.lng];
+      return typeof la === "number" && typeof ln === "number"
+        ? [{ ...r, d: haversineMiles(point.lat, point.lng, la, ln) }] : [];
+    });
+    // "Who pays the most near X" sorts by the asked column (rows missing it
+    // excluded, as in the main sort path); otherwise nearest-first.
+    let inRange = placed.filter((r) => r.d <= radius);
+    if (intent.sort) {
+      inRange = inRange.filter((r) => r.structured[intent.sort.col] !== null && r.structured[intent.sort.col] !== undefined);
+      const dir = intent.sort.dir === "desc" ? -1 : 1;
+      inRange.sort((a, b) => dir * (a.structured[intent.sort.col] - b.structured[intent.sort.col]) || a.d - b.d);
+      relaxations.push(`sorted by ${intent.sort.col} ${intent.sort.dir === "desc" ? "high to low" : "low to high"}`);
+    } else {
+      inRange.sort((a, b) => a.d - b.d);
+    }
+    const decorate = (r) => ({ ...r, structured: { distance_miles: Math.round(r.d * 10) / 10, ...r.structured } });
+    const geoFilters = { ...appliedFilters, near: point.label ?? "your location", radius_miles: radius };
+    if (inRange.length) {
+      relaxations.push(`within ${radius} miles of ${point.label ?? "your location"}`);
+      return { items: inRange.slice(0, 5).map(decorate), resultCount: inRange.length, appliedFilters: geoFilters, relaxations, alternatives: [] };
+    }
+    placed.sort((a, b) => a.d - b.d);
+    relaxations.push(`nothing within ${radius} miles of ${point.label ?? "your location"}; nearest options shown`);
+    return { items: [], resultCount: 0, appliedFilters: geoFilters, relaxations, alternatives: placed.slice(0, 3).map(decorate) };
+  }
 
   // Browse mode: the LLM sent nothing usable ("what do you have?"). Instead of
   // five arbitrary rows presented as "matches", return the catalog size plus

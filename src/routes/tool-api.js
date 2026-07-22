@@ -4,6 +4,7 @@ import { searchStructured } from "../search/structured.js";
 import { answerQuery } from "../search/answer.js";
 import { runSync } from "../sync/engine.js";
 import { classifyOutcome, callFlags } from "../analytics/quality.js";
+import { findGeoCols, geocodeUK, parseGeoFromQuery } from "../search/geo.js";
 
 const DEADLINE_MS = 2500;
 const RATE_LIMIT_PER_MIN = 60;
@@ -26,7 +27,7 @@ function convSweep(mem) {
   while (mem.size > CONV_MAX) mem.delete(mem.keys().next().value);
 }
 
-export function createToolApiRouter({ db, logger, config, connectors }) {
+export function createToolApiRouter({ db, logger, config, connectors, geocode = geocodeUK }) {
   const router = Router();
   const buckets = new Map(); // `${kind}:${sourceId}` -> {windowStart, count}
   const convMem = new Map(); // `${sourceId}:${callId}` -> {filters, ts}
@@ -92,7 +93,7 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       });
   }
 
-  router.post("/api/tools/:sourceId/search", (req, res) => {
+  router.post("/api/tools/:sourceId/search", async (req, res) => {
     const started = Date.now();
     const source = db.prepare("SELECT * FROM sources WHERE id = ?").get(req.params.sourceId);
     const secret = req.get("x-bridge-secret") || "";
@@ -103,7 +104,7 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
     }
 
     const body = req.body || {};
-    const args = body.args && (body.meta_data || body.metadata || body.call) ? body.args : body;
+    let args = body.args && (body.meta_data || body.metadata || body.call) ? body.args : body;
 
     const callId = req.get("call_control_id") || body.call?.call_id || null;
     const convKey = callId ? `${source.id}:${callId}` : null;
@@ -121,6 +122,25 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
       } else if (source.type === "website") {
         out = answerQuery(db, source, args, { startedAt: started });
       } else {
+        // Resolve a spoken location ("near CR4 4HX", near+radius_miles args)
+        // to coordinates before the synchronous search. Soft everywhere: no
+        // geo columns, unresolvable place, or a dead geocoder just means the
+        // search runs without the distance leg.
+        try {
+          let columns = [];
+          try { columns = JSON.parse(source.column_meta_json || "[]"); } catch { columns = []; }
+          if (Array.isArray(columns) && findGeoCols(columns)) {
+            const fromQuery = parseGeoFromQuery(String(args.query ?? ""));
+            const near = typeof args.near === "string" && args.near.trim() ? args.near.trim() : fromQuery?.near;
+            if (near) {
+              const radiusMiles = Number(args.radius_miles) > 0 ? Number(args.radius_miles) : fromQuery?.radiusMiles ?? 25;
+              const pt = await geocode(near);
+              args = pt
+                ? { ...args, _geo: { ...pt, radiusMiles }, query: fromQuery?.matched ? String(args.query ?? "").replace(fromQuery.matched, " ") : args.query }
+                : { ...args, _geoFail: near };
+            }
+          }
+        } catch { /* the distance leg must never break the answer */ }
         let structured = searchStructured(db, source, args);
         // Anaphoric follow-up: re-run with the call's earlier filters filled in
         // (current filters win on any column they share).
@@ -128,6 +148,13 @@ export function createToolApiRouter({ db, logger, config, connectors }) {
         if (mem && Date.now() - mem.ts < CONV_TTL_MS && ANAPHORA_RE.test(String(args.query || ""))) {
           const carried = Object.fromEntries(Object.entries(mem.filters)
             .filter(([k]) => !(k in structured.appliedFilters) && !(`${k.replace(/_(min|max)$/, "")}` in structured.appliedFilters)));
+          // Location carries like any other filter: "and copper piping?" after
+          // a located question stays near the caller. (Geocode is cached, so
+          // the repeat lookup is free.)
+          if (carried.near && !args._geo) {
+            const pt = await geocode(String(carried.near)).catch(() => null);
+            if (pt) args = { ...args, _geo: { ...pt, radiusMiles: Number(carried.radius_miles) > 0 ? Number(carried.radius_miles) : 25 } };
+          }
           if (Object.keys(carried).length) {
             const merged = searchStructured(db, source, { ...args, filters: { ...carried, ...(args.filters || {}), ...structured.appliedFilters } });
             if (merged.resultCount > 0 || merged.alternatives.length > 0) {

@@ -62,13 +62,16 @@ function itemPhrase(item, fmt = {}) {
   const label = item.title
     || Object.entries(item).find(([, v]) => typeof v === "string" && v.trim())?.[1]
     || "one option";
-  const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k));
-  if (priced) return `${label} at ${priceText(item, priced[0], fmt)}${rowAgeNote(item, fmt)}`;
+  // Distance is how a marketplace caller chooses between two similar offers -
+  // it earns its place in the spoken answer whenever the search was located.
+  const dist = typeof item.distance_miles === "number" ? `, ${item.distance_miles} miles away` : "";
+  const priced = Object.entries(item).find(([k, v]) => typeof v === "number" && MONEY_COL.test(k) && k !== "distance_miles");
+  if (priced) return `${label} at ${priceText(item, priced[0], fmt)}${dist}${rowAgeNote(item, fmt)}`;
   // Listed but unpriced (a marketplace seller who hasn't published today). Say
   // so out loud: "one match: New Yard Ltd" invites the model to invent a
   // number, and silently dropping the row hides a real business from a caller.
-  if (fmt.money?.length) return `${label} (no price published yet)`;
-  return String(label);
+  if (fmt.money?.length) return `${label}${dist} (no price published yet)`;
+  return `${label}${dist}`;
 }
 
 function speechHint({ resultCount, items, alternatives, relaxations, fmt }) {

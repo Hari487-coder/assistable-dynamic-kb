@@ -1,3 +1,5 @@
+import { findGeoCols } from "../search/geo.js";
+
 const MAX_FILTER_PARAMS = 6;
 
 const slug = (s) => String(s).replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48) || "source";
@@ -17,6 +19,14 @@ export function buildToolDefinition(source, columnMeta, { baseUrl, secret }) {
     query: { type: "string", description: "What the customer is asking for, in plain words. Always provide it." },
   };
   const filterSummaries = [];
+  // Rows with coordinates unlock "near me"-style search. These ride outside
+  // the 6-slot budget: location is the marketplace question, not one filter
+  // among many.
+  if (findGeoCols(columnMeta)) {
+    properties.near = { type: "string", description: `The customer's location: a UK postcode (full or partial, e.g. "CR4 4HX" or "SW19") or a town/city name. Use "" if they did not say where they are.` };
+    properties.radius_miles = { type: "number", description: "How far the customer will travel, in miles. Use 25 if they did not say." };
+    filterSummaries.push("distance from a postcode or town (near + radius_miles)");
+  }
   // A column of long prose (a description, a spec paragraph) is technically
   // categorical when every row repeats one of N blurbs, but it is useless as a
   // filter: nobody says a whole sentence to narrow a search, and offering it
