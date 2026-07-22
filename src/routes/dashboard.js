@@ -51,6 +51,16 @@ export function createDashboardRouter(deps) {
   router.get("/", (req, res) => res.redirect(sessionUser(db, req.cookies?.sid) ? "/sources" : "/login"));
   const userCount = () => db.prepare("SELECT count(*) c FROM users").get().c;
 
+  // Owner-only widget bench: embeds the tenant's own Assistable widget so the
+  // full chain (widget -> assistant -> tool) is testable without the public
+  // demo page whose stranger-traffic drained real credits. The widget script
+  // is third-party, so this single authed page relaxes the CSP the rest of
+  // the portal keeps strict.
+  router.get("/widget-test", guard, (_req, res) => {
+    res.set("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:");
+    res.send(pages.widgetTestPage());
+  });
+
   router.get("/login", (_req, res) => res.send(pages.loginPage()));
   router.get("/signup", (_req, res) => res.send(pages.signupPage(!!config.setupToken && userCount() === 0)));
 

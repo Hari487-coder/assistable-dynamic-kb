@@ -69,6 +69,17 @@ test("a key-protected feed keeps its auth header (stored encrypted)", async () =
   assert.deepEqual(cfg.authHeader, { name: "x-api-key", value: "secret-key-123" });
 });
 
+test("widget bench is owner-only and relaxes CSP just for the embed", async () => {
+  let res = await fetch(`${t.base}/widget-test`, { redirect: "manual" });
+  assert.equal(res.status, 302, "strangers are sent to login - no credit-draining public chat");
+  res = await post("/signup", { email: "bench@d.co", password: "longenough1" });
+  const cookie = res.headers.get("set-cookie").split(";")[0];
+  res = await fetch(`${t.base}/widget-test`, { headers: { cookie } });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /chat-widget-v2\.js/, "embeds the V2 widget loader");
+  assert.match(res.headers.get("content-security-policy") ?? "", /default-src \*/, "CSP relaxed so the third-party widget can load");
+});
+
 test("CSRF: mutation without header is rejected", async () => {
   const res = await fetch(`${t.base}/sources/new`, {
     method: "POST", redirect: "manual", headers: { "content-type": "application/json" }, body: "{}",

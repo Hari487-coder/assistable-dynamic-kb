@@ -347,6 +347,46 @@ async function submitSource(f){
 
 const stepChip = (done) => `<span class="chip ${done ? "active" : "never_synced"}">${done ? "done" : "to do"}</span>`;
 
+// Owner-only bench for the REAL chat widget. The public demo page died for a
+// good reason (strangers chatting = the owner's credits drained); behind the
+// portal login the owner still needs somewhere to test the full chain -
+// widget -> assistant -> live data tool - before pointing customers at it.
+export const widgetTestPage = () => layoutPage("Widget test", `
+<h1>Test with your real widget</h1>
+<p>Embeds your live Assistable chat widget so you can test the whole chain exactly
+as a visitor would. Only you can see this page - it needs your login - so nobody
+else can chat here and spend your credits.</p>
+<form onsubmit="loadWidget(this);return false">
+<label>Chat Widget V2 ID <input name="wid" placeholder="from Assistable → Widgets → your widget" autocomplete="off" required></label>
+<button>Load widget</button></form>
+<p id="wstate"><small>The ID is remembered on this browser. The chat bubble appears bottom-right once loaded.</small></p>
+<h2>Worth asking it</h2>
+<div class="card"><ul>
+<li>"what are you paying for bright wire in london"</li>
+<li>"who pays the most for bright wire"</li>
+<li>"bright wire within 10 miles of croydon" <small>- distance search</small></li>
+<li>"and what about copper piping" <small>- follow-up memory</small></li>
+<li>"bright wire in leeds" <small>- a yard with no price published yet</small></li>
+<li>"bright wire in birmingham" <small>- old prices, listen for the age caveat</small></li>
+<li>"do you take steel" <small>- the refusal line</small></li>
+</ul></div>
+<script>
+function loadWidget(f){
+  const id = f.wid.value.trim();
+  if (!id) return;
+  localStorage.setItem('kb_widget_id', id);
+  if (document.getElementById('kb-widget-script')) { location.reload(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://createassistants.com/chat-widget-v2.js';
+  s.id = 'kb-widget-script';
+  s.setAttribute('data-widget-id', id);
+  document.body.appendChild(s);
+  document.getElementById('wstate').innerHTML = '<small>Widget loading - the chat bubble appears bottom-right in a few seconds. If it does not, re-check the ID.</small>';
+}
+const savedWid = localStorage.getItem('kb_widget_id');
+if (savedWid) document.querySelector('[name=wid]').value = savedWid;
+</script>`);
+
 export function timeAgo(iso) {
   if (!iso) return "never";
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
@@ -425,7 +465,7 @@ async function testSearch(f){
   renderKbResult(document.getElementById('testout'), await api('/sources/${esc(state.firstSourceId)}/test', { query: f.q.value }));
 }
 </script>` : `<i>Add a source first.</i>`}
-Then call your assistant and ask for real.</p></li>
+Then <a href="/widget-test">test with your real chat widget</a>, or call your assistant and ask for real.</p></li>
 </ol>
 <script>
 function paintStep3(){ if (localStorage.getItem('kb_step3_done')) { const el = document.getElementById('step3chip'); if (el) el.innerHTML = '<span class="chip active">done</span>'; } }
