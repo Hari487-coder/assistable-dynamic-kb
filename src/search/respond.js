@@ -169,10 +169,22 @@ export function buildToolResponse({ source, structured, textResult, args, tookMs
   // Two shapes of the same rows: DISPLAY items (range shown as a string, no
   // bare midpoint, no coordinates) are what the LLM reads; SPEECH items keep
   // the raw numbers + _range so priceText can render "£8.00 to £8.95 per kilo".
-  const items = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...displayItem(i.structured, fmt) })) : [];
-  const alternatives = structured.alternatives.map((i) => ({ title: i.title, ...displayItem(i.structured, fmt) }));
   const speechItems = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...i.structured })) : [];
   const speechAlts = structured.alternatives.map((i) => ({ title: i.title, ...i.structured }));
+  // When NO distance was computed (the customer gave no location), strip the
+  // postcode/address from what the model sees. Left in, the model converts it
+  // to an invented "about 8 miles away" no prompt or guidance could suppress.
+  // Once a real location IS given, geo runs, distance_miles is present, and the
+  // postcode stays for directions.
+  const hasDistance = speechItems.some((i) => typeof i.distance_miles === "number");
+  const LOCATION_COL = /(^|_)(postcode|postal|zip|eircode|address|addr)(_|$)/i;
+  const shape = (structuredRow) => {
+    const d = displayItem(structuredRow, fmt);
+    if (!hasDistance) for (const k of Object.keys(d)) if (LOCATION_COL.test(k)) delete d[k];
+    return d;
+  };
+  const items = structured.resultCount ? structured.items.map((i) => ({ title: i.title, ...shape(i.structured) })) : [];
+  const alternatives = structured.alternatives.map((i) => ({ title: i.title, ...shape(i.structured) }));
   const out = {
     ...base,
     result_count: structured.resultCount,

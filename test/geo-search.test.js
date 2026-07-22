@@ -96,6 +96,17 @@ function seed() {
   return { db, meta, source: db.prepare("SELECT * FROM sources WHERE id='s1'").get() };
 }
 
+test("postcode is hidden with no location, kept once a distance is computed", async () => {
+  const { db, source } = seed();
+  const { buildToolResponse } = await import("../src/search/respond.js");
+  // No location -> no distance -> postcode stripped (kills invented "8 miles").
+  const noLoc = buildToolResponse({ source, structured: searchStructured(db, source, { query: "bright wire in london" }), args: {}, tookMs: 1 });
+  assert.ok(noLoc.items.every((i) => !("postcode" in i)), "postcode must not tempt an invented distance");
+  // Real location -> geo runs -> distance present -> postcode kept for directions.
+  const located = buildToolResponse({ source, structured: searchStructured(db, source, { query: "bright wire", _geo: { ...CROYDON, radiusMiles: 25, label: "Croydon" } }), args: {}, tookMs: 1 });
+  assert.ok(located.items.some((i) => "distance_miles" in i), "located query has distances");
+});
+
 test("radius search: in-range only, nearest first, distance attached", () => {
   const { db, source } = seed();
   const r = searchStructured(db, source, { query: "bright wire", _geo: { ...CROYDON, radiusMiles: 25, label: "Croydon" } });
