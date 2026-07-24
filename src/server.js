@@ -58,7 +58,7 @@ export function buildApp(deps) {
   app.use(cookieParser);
   app.use(createToolApiRouter({ db, logger, config, connectors }));
   app.use(createDashboardRouter({ db, config, logger, connectors, makeClient }));
-  app.use((_req, res) => res.status(404).send(pages.layoutPage("Not found", "<p>Page not found.</p>")));
+  app.use((_req, res) => res.status(404).send(pages.layoutPage("Not found", "<p>Page not found.</p>", { loggedIn: false })));
   app.use((err, _req, res, _next) => {
     if (err?.type === "entity.too.large") {
       return res.status(413).json({ ok: false, error: "That file is too large (limit 5 MB). Trim unused columns or split it into smaller sources." });

@@ -1,6 +1,6 @@
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function layoutPage(title, body) {
+export function layoutPage(title, body, { loggedIn = true } = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} - Live KB</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -158,8 +158,8 @@ td,th{padding:.65rem .85rem}
 }
 </style></head>
 <body><div id="bar"></div><div id="toast" role="status" aria-live="polite"></div>
-<div class="shell"><nav><span class="brand">Live<em>KB</em></span><a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a><a href="/widget-test">Test</a>
-<a href="#" onclick="api('/logout',{}).then(()=>location='/login');return false">Log out</a></nav>
+<div class="shell"><nav><span class="brand">Live<em>KB</em></span>${loggedIn ? `<a href="/setup">Setup</a><a href="/sources">Sources</a><a href="/connect">Connection</a><a href="/widget-test">Test</a>
+<a href="#" onclick="api('/logout',{}).then(()=>location='/login');return false">Log out</a>` : `<a href="/login">Log in</a><a href="/signup">Sign up</a>`}</nav>
 ${body}
 <script>
 let toastTimer;
@@ -222,10 +222,10 @@ ${extraFields}
 <button>${label}</button></form>
 <p><a href="${action === "/login" ? "/signup" : "/login"}">${action === "/login" ? "Create an account" : "Have an account? Log in"}</a></p>`;
 
-export const loginPage = () => layoutPage("Log in", authForm("/login", "Log in"));
+export const loginPage = () => layoutPage("Log in", authForm("/login", "Log in"), { loggedIn: false });
 export const signupPage = (needsSetupToken = false) => layoutPage("Sign up", authForm("/signup", "Sign up",
   needsSetupToken ? `<input name="setup_token" type="password" placeholder="setup token (the SETUP_TOKEN you deployed with)" autocomplete="off" required>
-<small>This instance asks the first account to prove it owns the deployment.</small>` : ""));
+<small>This instance asks the first account to prove it owns the deployment.</small>` : ""), { loggedIn: false });
 
 export const scopesBox = () => `
 <fieldset><legend>What access to give this key</legend>
@@ -450,7 +450,7 @@ ${state.connected ? "" : `<br><a href="/connect"><button>Connect Assistable</but
 CSV, feed URL, website, or database. The first sync runs immediately and the
 custom tool is created and attached to the assistants you pick.
 ${state.sourceCount > 0 ? `<br>Source: <a href="/sources/${esc(state.firstSourceId)}">${esc(state.firstSourceName)}</a>${state.firstTool?.tool_id ? ` - tool <code>${esc(state.firstTool.tool_id)}</code> on ${esc(JSON.parse(state.firstTool.assistant_ids_json).length)} assistant(s)` : ` - <span class="err">tool not created yet (connect Assistable, then re-create the source)</span>`}` : `<br><a href="/sources/new"><button ${state.connected ? "" : "disabled"}>Add source</button></a>`}</p></li>
-<li><p><b>Paste this into your assistant's instructions</b> (in Assistable) <span id="step3chip">${stepChip(false)}</span><br>
+<li><p><b>Paste this into your assistant's instructions</b> (in Assistable) <span id="step3chip" role="button" tabindex="0" title="Click to mark done once you've pasted it" style="cursor:pointer" onclick="toggleStep3()">${stepChip(false)}</span><br>
 <textarea id="snippet" readonly rows="4">${esc(snippet)}</textarea>
 <button onclick="navigator.clipboard.writeText(document.getElementById('snippet').value);this.textContent='Copied!';localStorage.setItem('kb_step3_done','1');paintStep3()">Copy</button><br>
 <small>If the assistant has a static KB covering the same topic, unlink those docs - they compete with live data on voice.</small></p></li>
@@ -468,7 +468,8 @@ async function testSearch(f){
 Then <a href="/widget-test">test with your real chat widget</a>, or call your assistant and ask for real.</p></li>
 </ol>
 <script>
-function paintStep3(){ if (localStorage.getItem('kb_step3_done')) { const el = document.getElementById('step3chip'); if (el) el.innerHTML = '<span class="chip active">done</span>'; } }
+function paintStep3(){ const el = document.getElementById('step3chip'); if (!el) return; const done = !!localStorage.getItem('kb_step3_done'); el.innerHTML = done ? '<span class="chip active">done</span>' : '<span class="chip never_synced">to do</span>'; }
+function toggleStep3(){ if (localStorage.getItem('kb_step3_done')) localStorage.removeItem('kb_step3_done'); else localStorage.setItem('kb_step3_done','1'); paintStep3(); }
 paintStep3();
 </script>
 <h2>Where your data lives</h2>
