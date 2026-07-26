@@ -7,6 +7,18 @@ import { findGeoCols, haversineMiles } from "./geo.js";
 
 const SENTINEL = (v) => v === "" || v === 0 || v === null || v === undefined;
 
+/**
+ * Words that merely NAME a column ("price", "grade", "yard") say which FIELD
+ * the caller means, not which row. A word that also appears inside one of the
+ * tenant's own category VALUES is content, not structure, and stays: "grade"
+ * is structural on its own but real in "Low Grade Cable".
+ */
+function structuralWords(columns) {
+  const words = new Set(columns.flatMap((c) => tokensFor(String(c.name).replace(/_/g, " "))));
+  for (const c of columns) for (const d of c.distincts ?? []) for (const w of tokensFor(String(d))) words.delete(w);
+  return words;
+}
+
 // LLMs eventually send every malformed shape: arrays, nested objects, "$30k",
 // NaN-producing strings, 10kb queries. Normalize instead of erroring - a tool
 // call must never fail because the model was sloppy.
@@ -193,7 +205,15 @@ export function searchStructured(db, source, args = {}) {
   for (const f of active) appliedFilters[f.op === "cat" ? f.col : `${f.col}_${f.op}`] = f.resolved ?? f.value;
 
   const wrap = (rows) => rows.map((r) => ({ ...r, structured: JSON.parse(r.structured_json) }));
-  const ftsQuery = intent.cleanedQuery;
+
+  // FTS indexes values, so a column's own name can match a ROW: one marketplace
+  // has a yard called "Peak Copper Prices", and "best price for copper piping"
+  // collapsed to that single yard - hiding the yard paying 35p/kg more. Strip
+  // structural words from the text leg. An all-structural question ("what's the
+  // price?") keeps its words rather than degrading into browse mode.
+  const structural = structuralWords(columns);
+  const contentTokens = tokensFor(intent.cleanedQuery).filter((t) => !structural.has(t));
+  const ftsQuery = contentTokens.length ? contentTokens.join(" ") : intent.cleanedQuery;
 
   // The location the caller named couldn't be resolved: search runs without
   // the distance leg, and the answer says so instead of silently ignoring it.
@@ -256,8 +276,7 @@ export function searchStructured(db, source, args = {}) {
     // one of their columns ("price", "grade") is structural, not missing -
     // reporting `ignored "price" (not found in your data)` next to a price
     // column reads like a bug in the log.
-    const columnWords = new Set(columns.flatMap((c) => tokensFor(String(c.name).replace(/_/g, " "))));
-    const unknown = (res.ignoredWords ?? []).filter((w) => !columnWords.has(w));
+    const unknown = (res.ignoredWords ?? []).filter((w) => !structural.has(w));
     if (unknown.length) relaxations.push(`ignored "${unknown.join(" ")}" (not found in your data)`);
     return { items: wrap(res.rows), resultCount: res.total, appliedFilters, relaxations, alternatives: [] };
   }
